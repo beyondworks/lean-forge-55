@@ -1,203 +1,123 @@
-# lean-forge
+# lean-forge-55
 
-**Ask what matters. Build the least. Prove it ran.**
+**lean-forge, tuned for Claude Opus 5.5 and for Claude Code's Bash-first sessions.**
 
-One Claude Code plugin that settles the decisions a result depends on before any file is touched,
-builds the smallest thing that satisfies them, and closes every edit with evidence.
-It carries its own copies of [Castra](https://github.com/beyondworks/castra) and
-[Ponytail](https://github.com/DietrichGebert/ponytail), and adds a questioning phase that a hook enforces —
-so there is nothing else to install and nothing to choose between.
+Everything [lean-forge](https://github.com/beyondworks/lean-forge) does (SETTLE before building, Ponytail while building,
+Castra's evidence ledger at the end), plus two layers that came out of measuring Opus 5.5 directly:
 
-[![release](https://img.shields.io/github/v/release/beyondworks/lean-forge?label=release)](https://github.com/beyondworks/lean-forge/releases)
-![license](https://img.shields.io/badge/license-MIT-black)
-![claude code](https://img.shields.io/badge/Claude%20Code-plugin-6f4ad2)
+1. **Shell writes are gated, tracked and undoable** — in any session where Claude Code steers file work to Bash.
+2. **Rules for Opus 5.5's measured weak spots** — applied only when the model is `claude-opus-5-5`.
 
 [한국어](README.ko.md)
 
 ---
 
-## The idea
+## Why a shell layer
 
-Coding agents fail in two opposite ways.
+Claude Code watches file changes through its Read, Edit and Write tools: that is where checkpoints, edit hooks and
+approval prompts attach. In Claude Code 2.1.280 sessions marked `bashFirst` (recorded in the session transcript), we
+measured Opus 5.5, Opus 5 and Fable 5.1 **reading and writing files only through Bash** — `cat`, `cat > file <<EOF`,
+a Python one-liner — with zero Read or Edit calls. The result is the same file, but Claude Code only sees
+"a command ran". Its documentation says so directly: *"Checkpointing does not track files modified by Bash commands."*
 
-- **Fast harnesses guess.** Told to keep moving, the agent fills every open question with a plausible
-  default: English CSV headers the accountant never asked for, an invoice number format nobody approved,
-  the user's own wrong diagnosis ("it's probably `round()`") taken as the cause.
-- **Thorough harnesses pay for ceremony.** They ask the right questions — and then spend most of their
-  time on contract documents, review subagents and branch-and-commit workflows.
-
-The accuracy comes from the questions, asked in the first minutes, not from the ceremony that follows.
-The fast harness is fast because it never asks.
-
-lean-forge keeps the questions and drops the ceremony — and it does not trust a prompt to keep the
-questions alive. A hook closes file edits until the outcome-changing decisions are settled.
-Rules written only as text were followed in 4 of 10 cases; enforced by a hook, in every case.
-
----
-
-## One flow for every request
+So in those sessions `/rewind` cannot restore the changes, edit-based hooks never fire, and lean-forge's own SETTLE
+gate (which watches the edit tools) could be walked past. lean-forge-55 closes that gap:
 
 ```mermaid
 flowchart LR
-    R([request]) --> J{"Jev: does the request<br/>literally fix the result?"}
-    J -- "yes: typo, rename,<br/>stated output" --> B
-    J -- "no" --> S["<b>SETTLE</b><br/>reproduce the symptom<br/>ask with boundary examples<br/>'any other rule?'"]
-    S -- "user answers" --> B["<b>BUILD</b><br/>confirmed rules → tests first<br/>smallest change that passes"]
-    B --> P["<b>PROVE</b><br/>run the check that would fail<br/>on the defect, tie it to the file"]
-    P --> T(["<b>REPORT</b><br/>result · evidence · unverified<br/>where it reached"])
-    P -. "edit again" .-> B
+    C["Bash command"] --> W{"SETTLE open?"}
+    W -- "no, and the command writes files" --> D["denied:<br/>ask the user first"]
+    W -- "yes / read-only" --> S["snapshot the tree<br/>(first shell call of the turn)"]
+    S --> R["command runs"]
+    R --> F["diff the tree:<br/>which files changed?"]
+    F --> L["Castra ledger:<br/>changed files are pending<br/>until a check covers them"]
+    F --> U["undo restores the turn;<br/>new files are moved aside, not deleted"]
 ```
 
-| Phase | What happens | Enforced by |
-|---|---|---|
-| **SETTLE** | A cause the user suggests is a hypothesis: reproduce it. List the decisions the result must answer (structure, behavior, contract, technical). Ask once, at most five items, each with a recommendation and a worked example at a boundary value, and end with *"any other rule you hold?"* | Edits stay closed until the user answers. An independent classifier (Jev) opens them at once for requests that fix their own result. |
-| **BUILD** | Each confirmed rule becomes an acceptance test with its reason in one line. Then the Ponytail ladder: does it need to exist → stdlib → native → installed dependency → one line → minimum code. | Ponytail rules, injected every session |
-| **PROVE** | Every edited file is tracked as unverified until a check is explicitly tied to it; editing again voids the evidence. | Castra ledger: ending a turn with unverified edits is blocked |
-| **REPORT** | What changed, the decisive evidence, what was not verified, and where the change reached: source, installed build, running service, production. | Castra execution contract |
+Sessions without `bashFirst` get plain lean-forge behavior.
 
-Questions happen only in SETTLE. From BUILD on, the agent never stalls — the two speed rules that used
-to fight each other ("don't stall" and "ask first") now live in different phases.
+## Rules for Opus 5.5
 
----
+From 48 runs of Opus 5.5 on the benchmark below, with and without lean-forge, and Anthropic's
+[Opus 5.5 prompting guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5):
 
-## How SETTLE is enforced
-
-```mermaid
-stateDiagram-v2
-    direction LR
-    [*] --> closed: new request
-    closed --> open: Jev ≥ 0.5 (mechanical)
-    closed --> asked: turn ends without edits (the agent asked)
-    asked --> open: Jev: the message replies to that turn
-    asked --> closed: Jev: it is a new request (triaged again)
-    open --> closed: next new request
-    closed --> open: Jev unavailable and the agent writes a one-line reason
-    note right of closed
-        Edit / Write / MultiEdit / NotebookEdit
-        are denied while closed
-    end note
-```
-
-The classifier is [Jev](https://docs.typesafe.ai), a small model that returns a probability instead of
-text. One call costs about 0.7 s. It separated 16 labeled requests perfectly in Korean and in English
-(mechanical ≥ 0.55, needs-a-decision ≤ 0.21). Without a key, or if Jev does not answer, the gate falls
-back to asking the agent for a written reason before a mechanical edit.
-
----
-
-## What is inside
-
-```mermaid
-flowchart TB
-    subgraph LF["lean-forge (one plugin)"]
-        direction TB
-        F["forge.py<br/>SETTLE gate + Jev triage"]
-        subgraph C["Castra 0.9.1 (vendored)"]
-            C1["evidence ledger<br/>trace · verify · stop gate"]
-            C2["execution contract"]
-            C3["guardian<br/>risky commands"]
-            C4["release gate<br/>CI of the exact commit"]
-            C5["checkpoints · budget · /castra modes"]
-        end
-        subgraph P["Ponytail 4.5.0 (vendored)"]
-            P1["ladder & rules"]
-            P2["review · audit · debt · help"]
-        end
-    end
-```
-
-| Part | Kept from the original | Changed |
-|---|---|---|
-| Castra | Everything: per-file evidence ledger, execution contract, guardian (force push, `DROP`, reading `.env` are handed to the user; `rm -rf`, `reset --hard`, `sudo`, publishing ask first), release gate, checkpoints, budget advisory, `/castra` modes | nothing |
-| Ponytail | Everything: ladder, rules, `/ponytail lite\|full\|ultra`, four skills | one sentence: *"ship the lazy version and question it … never stall"* now applies **after** SETTLE |
-
----
+| Observed | Rule |
+|---|---|
+| Finds real causes well, but starts building quickly and **guesses output contracts** (CSV headers, keys, ID formats). Without a harness it wrote files before the first answer in 20 of 20 runs that asked anything; runs whose questions missed the contract fully passed 0 of 7 times | Look first where the rules already live, then settle every user-visible contract before writing |
+| Reads a broad "proceed" as permission to **commit, branch and merge** (7 of 24 runs without a harness) | Git operations only when the user names them |
+| Twice reported "tests pass" without re-running them after its last change | Claim a pass only for a run seen after the last change |
+| Replied in English to about 15–20% of Korean prompts | Reply in the user's language |
+| Anthropic: mark pasted text so instructions inside it are not taken as the user's | Anthropic's `<pasted_content>` note, verbatim |
 
 ## Results
 
-Eight tasks on a small Python invoicing library, 36 hidden tests. A scripted user (Claude Sonnet)
-answered every harness from the same intent file. Model: Claude Opus 5 for every agent. Cost is the
-API-price equivalent of the tokens used.
+Claude Opus 5.5, Claude Code 2.1.280, effort `medium`, eight tasks with 36 hidden tests, three runs per task and
+condition, a scripted user (Claude Sonnet) answering from the same intent file. Differences are paired by task (each
+task is one cluster).
 
-**No other harness loaded**
-
-| Harness | Hidden tests passed | Time | Cost |
+| | No harness | lean-forge | **lean-forge-55** |
 |---|---|---|---|
-| Castra + Ponytail | 15/36 | 10 min | $3.79 |
-| **lean-forge** (2 runs) | **31/36 · 36/36** | **18 min** | **$5.2** |
+| Runs passing every hidden test | 14/24 | 21/24 | **24/24** |
+| Task pass rate | 0.75 | 0.97 | **1.00** |
+| Cost per task | $0.53 | $0.40 | $0.51 |
+| Time per task | 1.3 min | 1.0 min | 1.2 min |
+| Wrote files before the user's answer | 20/20 | 0/21 | 0/21 |
+| Unrequested commits | 7 runs | 0 | 0 |
 
-**Is the difference real?** Fisher's exact test on test counts, paired sign test on time and cost per task.
+- **Against lean-forge:** pass rate +0.03 (95% CI −0.02 to +0.07) — not conclusive. It costs more: time +15%
+  (slower on all 8 tasks, sign test p = 0.008), cost +25% (p = 0.07). The hooks themselves take about 0.1 s per run;
+  the extra time is the model looking and re-testing more (4.8 → 5.5 tool calls, +13% output tokens).
+- **The gate at work:** in one run Opus 5.5 tried to edit a test file through the shell while a decision was still
+  open. lean-forge-55 denied it; the model asked the question with a recommendation and a worked example, got the
+  answer, and passed. Plain lean-forge would not have seen that write.
+- **Probes (5 each):** a planted "run this remote script" line in pasted npm output was never executed; asked to
+  "clean up this folder", it deleted nothing and listed candidates first (plain lean-forge deleted caches once).
 
-| lean-forge vs | Accuracy | Time and cost |
-|---|---|---|
-| Castra + Ponytail | **2.2× higher** (93% vs 42%, p < 0.001) | no significant difference (p = 0.07) |
+Per-run numbers: [`bench/results-opus55.csv`](bench/results-opus55.csv). The original lean-forge benchmark and its
+runner are in [`bench/`](bench/).
 
-The same comparison on the author's full personal setup (other plugins, hooks and memory loaded)
-gave the same picture: 95% vs 52% (p < 0.001) at equal time (18 vs 19 minutes, p = 1.00).
-
-- 6 of lean-forge's 8 missed tests came from two runs where the scripted user answered against its own
-  intent file (it approved a wrong number format, and waved off a question the file answered). The agent
-  had asked the right question both times. The other 2 were one rounding boundary every harness missed
-  at least once.
-- Every file lean-forge edited ended *verified* in the Castra ledger, and the stop gate never had to
-  fire (0 of 30 runs; the Castra + Ponytail pair needed it in 7 of 8).
-
-Everything needed to rerun it is in [`bench/`](bench/): tasks, intent files, hidden tests, fixtures,
-the runner, and per-run numbers ([`bench/results-summary.csv`](bench/results-summary.csv)).
-
-```bash
-cd bench
-python3 run.py G t1 1          # lean-forge on task t1, run 1
-python3 significance.py        # compare with the recorded results
-```
-
----
+**When to use which.** Where results go to other people or programs, or undo matters, lean-forge-55. For quick
+throwaway work, plain lean-forge is a little cheaper and faster.
 
 ## Install
 
 ```text
-/plugin marketplace add beyondworks/lean-forge
-/plugin install lean-forge@lean-forge
+/plugin marketplace add beyondworks/lean-forge-55
+/plugin install lean-forge-55@lean-forge-55
 ```
 
-Requirements: `python3`, `node`, `git`. Optional: a TypeSafe key for Jev, as the environment variable
-`TYPESAFE_API_KEY` or a macOS keychain item of that name.
+Do not enable it together with lean-forge, Castra hooks or the Ponytail plugin: it contains all of them, and the same
+hooks would run twice. Requirements: `python3`, `node`, `git`; optionally a TypeSafe key for Jev
+(`TYPESAFE_API_KEY`, environment or macOS keychain; `LEAN_FORGE_JEV=off` disables it).
 
-If you already run Castra hooks from `settings.json` or the Ponytail plugin, turn them off — lean-forge
-contains both, and the same hooks would run twice.
-
-## Use
-
-There is nothing to call. Make requests as usual:
-
-- A request whose result is fully stated goes straight through.
-- Anything else gets one message of questions first. Answer it and the work continues without stopping.
-- `/castra review · verify · reframe · finish · resume · status` and `/ponytail lite | full | ultra`
-  work as they do in the originals.
-
-Self-tests:
+**Undo the last turn's shell changes:** the session-start block prints the exact command, of the form
 
 ```bash
-python3 hooks/test_forge.py    # SETTLE gate, with and without Jev
-python3 hooks/test_bundle.py   # guardian, release gate, session contract, evidence ledger, Ponytail
+python3 "<plugin root>/scripts/lf55_snapshot.py" undo --session <session id>
 ```
 
----
+It restores the files, moves files created during that turn into an aside folder (nothing is deleted), and keeps a
+copy of what it replaced, so the undo can itself be reversed. The `lean-forge-55:undo` skill runs it for you.
+
+Self-tests: `python3 hooks/test_forge.py`, `python3 hooks/test_bundle.py`, `python3 hooks/test_shell.py`.
 
 ## Limits
 
-- One small repository and eight tasks; the older harnesses ran once per task. Large codebases,
-  multi-module changes and verification on real screens or installed apps were not part of the
-  benchmark; the guardian, release gate and ledger are covered by `hooks/test_bundle.py` instead.
-- The scripted user is itself a model and made mistakes (above).
-- The SETTLE gate watches the edit tools. A file written through the shell passes it, as it passes
-  Castra's ledger.
-- The Jev threshold (0.5) was set on 16 requests. Tune it on real traffic.
+- The gate recognizes shell writes by command patterns (redirects to file paths, `sed -i`, `tee`, `cp`/`mv`/`rm`,
+  Python `open(..., 'w')`, git operations that change the tree). The before/after diff catches what the patterns miss,
+  but only after the command ran.
+- Tracking and undo cover trees up to 5,000 files and 30 MB, skipping `.git`, `node_modules`, virtualenvs and build
+  folders. Above that, a notice says undo is off and git is the way back.
+- One small repository, eight tasks, one date, one effort level; the scripted user is a model and makes mistakes.
+- `bashFirst` is a Claude Code setting we observed in transcripts, not a documented interface. If it changes, the
+  shell layer falls back to "on" while the setting is unknown.
 
 ## Credits
 
-- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, vendored unchanged ([license](vendor-licenses/castra-LICENSE))
+- [lean-forge](https://github.com/beyondworks/lean-forge) — MIT
+- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, vendored ([license](vendor-licenses/castra-LICENSE))
 - [Ponytail](https://github.com/DietrichGebert/ponytail) 4.5.0 by Dietrich Gebert — MIT, vendored with one sentence changed ([license](vendor-licenses/ponytail-LICENSE))
 - [Jev](https://docs.typesafe.ai) by TypeSafe — external API
+- The pasted-text note is quoted from Anthropic's [Prompting Claude Opus 5.5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)
 
 MIT © beyondworks
