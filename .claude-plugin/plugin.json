@@ -1,5 +1,5 @@
 {
   "name": "lean-forge-55",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "lean-forge tuned for Claude Opus 5.5: shell writes gated and tracked (undo, Castra ledger), output contract before code, no git on broad approvals. Other models get plain lean-forge. Castra 0.9.1 and Ponytail 4.5.0 vendored."
 }

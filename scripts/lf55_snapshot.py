@@ -10,7 +10,7 @@ usage: lf55_snapshot.py undo --session <id>     restore the tree to its state be
        lf55_snapshot.py list --session <id>     show stored turn snapshots
 ponytail: size/mtime manifest, whole-tree tar per turn; capped, skipped (with a notice) above the cap.
 """
-import json, os, shutil, subprocess, sys, tarfile, time
+import hashlib, json, os, shutil, subprocess, sys, tarfile, time
 
 DIR = os.path.expanduser("~/.cache/lean-forge-55/snapshots")
 SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", ".cache", "dist", "build", "target", ".tox"}
@@ -53,10 +53,14 @@ def _sdir(sid):
 def before(sid, call_id, cwd, turn):
     """Record the pre-command manifest; archive the tree once per turn. Returns a notice or ''."""
     root = root_of(cwd)
+    d = _sdir(sid)
+    big = os.path.join(d, "too-big-" + hashlib.sha1(root.encode()).hexdigest()[:12])  # stable across hook processes
+    if os.path.exists(big):
+        return ""  # said once for this session; do not rescan a tree over the cap on every command
     m = manifest(root)
     if m is None:
-        return f"lean-forge-55: the tree under {root} has over {MAX_FILES} files; shell changes are not tracked and undo is off."
-    d = _sdir(sid)
+        open(big, "w").write(root)
+        return f"lean-forge-55: the tree under {root} has over {MAX_FILES} files; shell changes are not tracked and undo is off for this session."
     json.dump({"root": root, "files": m}, open(os.path.join(d, f"pre-{call_id}.json"), "w"))
     tag = f"turn-{turn}"
     if os.path.exists(os.path.join(d, tag + ".json")):

@@ -9,13 +9,30 @@ denied = lambda out: '"deny"' in out
 
 # 1. what counts as a shell write (gate heuristic)
 ns = {"__file__": H}; exec(open(H).read().split("def current_model")[0], ns)
-w = ns["writes_files"]
+w = lambda c: ns["writes_files"](c, "/repo")
 for cmd in ("cat > invoicer/export.py <<'EOF'\nx\nEOF", "echo hi >> notes.md", "sed -i '' 's/a/b/' a.py", "tee out/x.csv",
             "python3 - <<'EOF'\nopen('invoicer/calc.py','w').write(s)\nEOF", "git commit -qm x", "rm invoicer/old.py"):
     assert w(cmd), f"write: {cmd!r}"
 for cmd in ("cat invoicer/*.py", "python3 -m unittest discover -s tests 2>&1 | tail -3", "grep -rn total . > /dev/null",
-            "python3 -c 'print(3 > 2, 0.1 > 0.05)'", "ls > /tmp/list.txt", "def f() -> int: pass", "git status && git diff"):
-    assert not w(cmd), f"not a write: {cmd!r}"
+            "python3 -c 'print(3 > 2, 0.1 > 0.05)'", "ls > /tmp/list.txt", "def f() -> int: pass", "git status && git diff",
+            # outside the project: temp files, caches, the user's own notes
+            "python3 - <<'EOF'\nopen('/tmp/x.json','w').write('{}')\nEOF", "echo x >> ~/.claude/lessons.md",
+            "python3 -c \"open('/Users/someone/.cache/x.json','w')\"", "cp app/a.py /tmp/a.py", "tee /tmp/out.log",
+            "python3 - <<'EOF'\njson.dump(x, open(f'{S}/{sid}.json', 'w'))\nEOF"):
+    assert not w(cmd), f"not a project write: {cmd!r}"
+for cmd in ("python3 -c \"open('/repo/app/x.py','w')\"", "cp /tmp/a.py app/b.py", "mv app/a.py app/b.py"):
+    assert w(cmd), f"project write: {cmd!r}"
+
+# large trees: the cap notice comes once per session, and the tree is not rescanned after that
+import lf55_snapshot as snap
+big = tempfile.mkdtemp(prefix="lf55-big-")
+for i in range(4): open(f"{big}/f{i}.txt", "w").write("x")
+def before_in_new_process(call_id):  # hooks run as separate processes; so must this check
+    code = f"import sys; sys.path.insert(0, {os.path.join(HERE, '..', 'scripts')!r}); import lf55_snapshot as s; s.MAX_FILES = 3; " \
+           f"print(s.before('selftest55-big-{os.getpid()}', {call_id!r}, {big!r}, 1))"
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip()
+first, again = before_in_new_process("a"), before_in_new_process("b")
+assert first and not again, (first, again)
 
 # a repo and a transcript naming the model
 REPO = tempfile.mkdtemp(prefix="lf55-")

@@ -49,7 +49,34 @@ From 48 runs of Opus 5.5 on the benchmark below, with and without lean-forge, an
 | Replied in English to about 15–20% of Korean prompts | Reply in the user's language |
 | Anthropic: mark pasted text so instructions inside it are not taken as the user's | Anthropic's `<pasted_content>` note, verbatim |
 
+## How the gate judges (v0.2)
+
+Real use showed the v0.1 gate closing writes on messages like "진행해줘" ("go ahead") after a working turn: it judged
+each message alone, asking whether it *literally fixed the result*, and a two-word go-ahead never does. On the author's
+own messages that rule closed **every** message that should have stayed open (55 of 55, and 42 of 42 on a fresh sample).
+
+v0.2 asks one question with the conversation as context: *to carry this out, must the agent choose something the user
+will see or rely on that nothing has settled yet?* Continuing, approving or correcting the plan, fixing a reported
+problem, running, testing, deploying and standing procedures keep writes open; open-ended new work asks first.
+
+| On the author's messages (4,534 from 298 sessions) | Wrongly closed | Wrongly opened |
+|---|---|---|
+| v0.1 rule after a working turn, fresh sample of 100 | 42 of 42 | 0 of 5 |
+| **v0.2 rule**, same fresh sample (threshold chosen on a separate 100) | **1 of 42** | **0 of 5** |
+
+The rest of each sample were questions and checks, where either answer is harmless.
+
+**Your own habits (optional).** The gate reads `~/.config/lean-forge-55/profile.txt` if it exists: a short plain-text
+note on how you instruct agents (your usual go-ahead phrases, your standing procedures). It is sent to Jev with each
+judgment and never leaves your machine otherwise; keep it out of any repository. Without it, the gate still works; on the
+author's data the note removed three of five wrong closes on the tuning sample.
+
+Also in v0.2: writes outside the project (temp files, caches, your own notes) are not gated; on trees over 5,000 files
+the "tracking is off" notice appears once per session instead of on every command.
+
 ## Results
+
+*Measured with the v0.1 gate.*
 
 Claude Opus 5.5, Claude Code 2.1.280, effort `medium`, eight tasks with 36 hidden tests, three runs per task and
 condition, a scripted user (Claude Sonnet) answering from the same intent file. Differences are paired by task (each

@@ -22,18 +22,20 @@ import lf55_snapshot as snap
 
 STATE_DIR = os.path.expanduser("~/.cache/lean-forge-55")
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-JEV_Q = {"fixed": {"type": "noul", "instructions":
-    "Given the request and the repository summary, does the request literally determine the exact result, so that any two "
-    "competent engineers who have never talked to this user would produce the same observable output (same names, formats, "
-    "rules, edge-case behavior)? Answer yes only if no product, policy, or output-format decision is left open."}}
-MECH_THRESHOLD = 0.5  # ponytail: calibrated on 16 requests (mechanical >= 0.55, must-ask <= 0.21); tune on real traffic
-REPLY_Q = {"reply": {"type": "noul", "instructions":
-    "The agent's last message and the user's new message are given. Is the user's new message a reply to the agent's "
-    "last message (answering its questions, choosing among its options, approving or correcting its proposal), rather than "
-    "a new, separate request about something else?"}}
+NEEDS_Q = {"needs_decision": {"type": "noul", "instructions":
+    "The user's new message is a request to a coding agent; the agent's last message and a note on how this user works are "
+    "given as context. To carry out the new message, must the agent choose something the user will see or rely on that "
+    "neither the message nor the conversation settles: an output format, names or labels, a screen or interaction design, "
+    "a policy or business rule, or one of several meaningfully different behaviors? Answer no when the work is fixing a "
+    "reported problem so things work as intended, investigating, checking, running, testing, deploying, publishing, "
+    "restarting, processing a named file with stated parameters, following a standing procedure, or applying a change the "
+    "user described concretely or the agent already proposed."}}
+# ponytail: calibrated on the author's own messages: 100 labeled to choose the question and threshold, 100 fresh ones held
+# out (must-ask scored 0.85-0.96; wrongly closed 1 of 42, wrongly opened 0 of 5). Re-check on your own traffic.
+NEEDS_THRESHOLD = 0.8
+PROFILE = os.path.expanduser("~/.config/lean-forge-55/profile.txt")  # optional, private: how this user instructs agents
 CODE_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".rb", ".sh", ".bash", ".zsh", ".java", ".kt", ".swift",
                  ".c", ".cpp", ".css", ".scss", ".html", ".vue", ".svelte", ".ipynb", ".sql", ".yml", ".yaml"}  # Castra's set + config
-REPLY_THRESHOLD = 0.5  # ponytail: calibrated on 10 exchanges (reply >= 0.79, new request <= 0.24)
 
 
 def jev(state, questions, name):
@@ -56,13 +58,14 @@ def jev(state, questions, name):
         return None
 
 
-def jev_fixed(prompt, cwd):
-    """Probability that the request fixes the result."""
+def needs_decision(prompt, agent):
+    """Probability that the request leaves a user-visible decision open, judged with the conversation and the user's habits."""
+    state = {"agent_last_message": agent[-3000:], "user_new_message": prompt[:4000]}
     try:
-        files = subprocess.run(["git", "ls-files"], cwd=cwd, capture_output=True, text=True, timeout=2).stdout.split()[:60]
-    except Exception:
-        files = []
-    return jev({"repository_files": files, "request": prompt[:6000]}, JEV_Q, "fixed")
+        state["about_this_user"] = open(PROFILE).read().strip()[:2000]
+    except OSError:
+        pass
+    return jev(state, NEEDS_Q, "needs_decision")
 
 
 def last_agent_message(transcript_path):
@@ -86,31 +89,44 @@ def last_agent_message(transcript_path):
     return ""
 
 
-def is_reply(prompt, transcript_path):
-    """After a turn that ended without edits: is this message an answer, not a new request? Unknown counts as answer."""
-    agent = last_agent_message(transcript_path)
-    if not agent:
-        return True
-    p = jev({"agent_last_message": agent, "user_new_message": prompt[:4000]}, REPLY_Q, "reply")
-    return p is None or p >= REPLY_THRESHOLD
-
-
 # A shell command that writes into the project: a redirect to a file path, an in-place editor, a file-writing call,
-# or a git/file operation that changes the tree. Temp and device targets are fine. ponytail: string heuristic for the
-# gate only; the pre/post tree diff is what actually records changes.
+# or a git operation that changes the tree. Writes outside the project (temp files, caches, the user's own notes) and
+# targets that cannot be resolved from the text are not gated. ponytail: string heuristic for the gate only; the
+# pre/post tree diff is what actually records changes inside the project.
 REDIRECT = re.compile(r"(?<![-=<>&0-9])>{1,2}\s*(?!&)(['\"]?)([^\s'\";|&)]+)")
 TARGET = re.compile(r"(/|[A-Za-z_][\w-]*\.[A-Za-z]{1,8}$)")
-WRITERS = re.compile(r"\b(sed\s+-i|perl\s+-\w*i|tee\b|truncate\b|touch\b|cp\b|mv\b|rm\b|install\b|patch\b|"
-                     r"git\s+(apply|checkout|restore|reset|stash|commit|merge|rebase|am|cherry-pick))|"
-                     r"open\([^)]*['\"][wax]|write_text\(|write_bytes\(|writeFileSync|fs\.writeFile")
-SAFE = ("/tmp/", "/private/tmp/", "/dev/", "/var/folders/")
+OPEN = re.compile(r"(?:open|Path)\(\s*([fbr]{0,2})(['\"])(.*?)\2\s*(?:,\s*[a-z]*\s*=?\s*['\"][wax]|\)\s*\.(?:write_text|write_bytes|open\(\s*['\"][wax]))")
+FS_WRITE = re.compile(r"(?:writeFileSync|fs\.writeFile)\(\s*(['\"])(.*?)\1")
+WORDS = re.compile(r"(?:^|[\s;&|(])(sed\s+-i|perl\s+-\w*i\w*|tee|truncate|touch|cp|mv|rm|install|patch)\b([^;&|\n]*)")
+GIT = re.compile(r"\bgit\s+(apply|checkout|restore|reset|stash|commit|merge|rebase|am|cherry-pick)\b")
 
 
-def writes_files(cmd):
-    for _, t in REDIRECT.findall(cmd):
-        if TARGET.search(t) and not t.startswith(SAFE):
+def inside(path, root):
+    """True when a literal path points into the project; False outside it or when it cannot be resolved."""
+    path = path.strip().strip("'\"")
+    if not path or "{" in path or "$" in path or "*" in path:
+        return False
+    path = os.path.expanduser(path)
+    if not os.path.isabs(path):
+        return True  # relative to the session's working directory
+    root = os.path.realpath(root)
+    return os.path.realpath(path) == root or os.path.realpath(path).startswith(root + os.sep)
+
+
+def writes_files(cmd, root):
+    if any(TARGET.search(t) and inside(t, root) for _, t in REDIRECT.findall(cmd)):
+        return True
+    if any(not f and inside(p, root) for f, _, p in OPEN.findall(cmd)) or any(inside(p, root) for _, p in FS_WRITE.findall(cmd)):
+        return True
+    for word, rest in WORDS.findall(cmd):
+        args = [a for a in rest.split() if not a.startswith("-")]
+        if word.startswith("sed") and args:
+            args = args[1:]  # the sed script, not a path
+        if word == "cp":
+            args = args[-1:]  # only the destination changes
+        if any(inside(a, root) for a in args):
             return True
-    return bool(WRITERS.search(cmd))
+    return bool(GIT.search(cmd))
 
 
 def current_model(inp, st):
@@ -183,18 +199,21 @@ def main():
         if "<task-notification>" in inp.get("prompt", ""):
             return  # a background-task notice, not a user request: the gate keeps its state
         model, bf = st.get("model"), st.get("bash_first")
-        if st.get("state") == "asked" and is_reply(inp.get("prompt", ""), inp.get("transcript_path", "")):
-            st = {"state": "open", "prompt_at": now, "jev": st.get("jev"), "model": model, "bash_first": bf}  # the user is answering our questions
-        else:  # a new request, including one that follows a turn which only explained something
-            p = jev_fixed(inp.get("prompt", ""), inp.get("cwd", "."))
-            st = {"state": "open" if (p is not None and p >= MECH_THRESHOLD) else "closed",
-                  "prompt_at": now, "jev": p, "hatch": p is None, "model": model, "bash_first": bf}
+        prompt = inp.get("prompt", "")
+        agent = last_agent_message(inp.get("transcript_path", "")) if st.get("prompt_at") else ""
+        p = needs_decision(prompt, agent)
+        if p is None:  # Jev unavailable: only a message after an asking turn counts as its answer; otherwise the hatch
+            opened = st.get("state") == "asked"
+        else:  # continuing, approving or correcting the agent's plan, fixes and runs stay open; open-ended new work asks
+            opened = p < NEEDS_THRESHOLD
+        st = {"state": "open" if opened else "closed", "prompt_at": now, "jev": p, "hatch": p is None,
+              "model": model, "bash_first": bf}
 
     elif ev == "pre" and inp.get("tool_name") == "Bash":
         if not shell_rules(inp, st):
             return json.dump(st, open(sp, "w"))
         cmd = (inp.get("tool_input") or {}).get("command", "")
-        if st.get("state") != "open" and writes_files(cmd):
+        if st.get("state") != "open" and writes_files(cmd, snap.root_of(inp.get("cwd", "."))):
             json.dump(st, open(sp, "w"))
             return deny("lean-forge-55 SETTLE: file writes are closed, shell writes included, until the outcome-changing "
                         "decisions are settled. Reading, searching and running tests stay open. Send the user your "
