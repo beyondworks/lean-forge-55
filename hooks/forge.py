@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """lean-forge-55 SETTLE gate (Jev triage). PROVE is Castra's evidence ledger (castra-trace/openloop).
 
-Opus 5.5 edits files through Bash, which Claude Code's edit hooks and checkpoints never see. For that model
-(or while the model is still unknown, at a session's first tool call) the gate also closes shell writes,
-and every Bash call is diffed against the tree so changed files enter the Castra ledger and can be undone.
-Other models get plain lean-forge behavior.
+When Claude Code steers the session to Bash-first file work (its `bashFirst` mode, seen in the transcript), Claude edits
+files through Bash, which Claude Code's edit hooks and checkpoints never see; this was measured on Opus 5.5, Opus 5 and
+Fable 5.1 alike. In such sessions (or while the transcript does not show yet) the gate also closes shell writes, and every
+Bash call is diffed against the tree so changed files enter the Castra ledger and can be undone. Sessions without
+bashFirst get plain lean-forge behavior. The Opus 5.5 prompt rules live in protocol-55.md.
 
 A message after a turn that ended without edits opens the gate only if Jev judges it a reply to that turn;
 a new request there is triaged from scratch.
@@ -130,8 +131,31 @@ def current_model(inp, st):
     return st.get("model")
 
 
-def is55(model):
-    return model is None or "opus-5-5" in model
+def bash_first(inp, st):
+    """True/False once the transcript shows Claude Code's auto_mode attachment; None before it is written."""
+    if st.get("bash_first") is not None:
+        return st["bash_first"]
+    try:
+        with open(inp.get("transcript_path", ""), "rb") as f:
+            head = f.read(2_000_000).decode("utf-8", "replace")
+    except OSError:
+        return None
+    for line in head.splitlines():
+        if '"auto_mode"' in line:
+            try:
+                st["bash_first"] = bool(json.loads(line)["attachment"].get("bashFirst"))
+                return st["bash_first"]
+            except Exception:
+                continue
+    if '"type":"assistant"' in head.replace(" ", ""):
+        st["bash_first"] = False  # the session is under way and no bashFirst steering was recorded
+        return False
+    return None
+
+
+def shell_rules(inp, st):
+    current_model(inp, st)  # cached for reporting
+    return bash_first(inp, st) is not False
 
 
 def context(event, text):
@@ -158,16 +182,16 @@ def main():
     if ev == "prompt":
         if "<task-notification>" in inp.get("prompt", ""):
             return  # a background-task notice, not a user request: the gate keeps its state
-        model = st.get("model")
+        model, bf = st.get("model"), st.get("bash_first")
         if st.get("state") == "asked" and is_reply(inp.get("prompt", ""), inp.get("transcript_path", "")):
-            st = {"state": "open", "prompt_at": now, "jev": st.get("jev"), "model": model}  # the user is answering our questions
+            st = {"state": "open", "prompt_at": now, "jev": st.get("jev"), "model": model, "bash_first": bf}  # the user is answering our questions
         else:  # a new request, including one that follows a turn which only explained something
             p = jev_fixed(inp.get("prompt", ""), inp.get("cwd", "."))
             st = {"state": "open" if (p is not None and p >= MECH_THRESHOLD) else "closed",
-                  "prompt_at": now, "jev": p, "hatch": p is None, "model": model}
+                  "prompt_at": now, "jev": p, "hatch": p is None, "model": model, "bash_first": bf}
 
     elif ev == "pre" and inp.get("tool_name") == "Bash":
-        if not is55(current_model(inp, st)):
+        if not shell_rules(inp, st):
             return json.dump(st, open(sp, "w"))
         cmd = (inp.get("tool_input") or {}).get("command", "")
         if st.get("state") != "open" and writes_files(cmd):
@@ -180,7 +204,7 @@ def main():
             context("PreToolUse", notice)
 
     elif ev == "post":
-        if inp.get("tool_name") != "Bash" or not is55(current_model(inp, st)):
+        if inp.get("tool_name") != "Bash" or not shell_rules(inp, st):
             return
         changed, removed = snap.after(sid, inp.get("tool_use_id", "x"))
         if not changed and not removed:

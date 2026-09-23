@@ -1,4 +1,4 @@
-# `python3 test_shell.py` — lean-forge-55 additions: shell-write gate (Opus 5.5 / unknown model only), tree diff into the
+# `python3 test_shell.py` — lean-forge-55 additions: shell-write gate (Claude Code bashFirst sessions, or not yet known), tree diff into the
 # Castra ledger, per-turn undo, and background-task notices leaving the gate alone. Offline: Jev is switched off here.
 import glob, hashlib, json, os, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -21,13 +21,15 @@ for cmd in ("cat invoicer/*.py", "python3 -m unittest discover -s tests 2>&1 | t
 REPO = tempfile.mkdtemp(prefix="lf55-")
 subprocess.run("git init -q && mkdir app && printf 'A = 1\\n' > app/calc.py && git add -A && "
                "git -c user.email=t@t -c user.name=t commit -qm init", shell=True, cwd=REPO, check=True)
-def transcript(model):
+def transcript(model, bash_first):
     t = tempfile.mktemp(suffix=".jsonl")
-    open(t, "w").write(json.dumps({"type": "assistant", "message": {"model": model, "content": [{"type": "text", "text": "ok"}]}}) + "\n")
+    lines = [] if bash_first is None else [{"type": "attachment", "attachment": {"type": "auto_mode", "bashFirst": bash_first}}]
+    lines.append({"type": "assistant", "message": {"model": model, "content": [{"type": "text", "text": "ok"}]}})
+    open(t, "w").write("".join(json.dumps(x) + "\n" for x in lines))
     return t
-def session(tag, model):
+def session(tag, model, bash_first=True):
     sid = f"selftest55-{tag}-{os.getpid()}"
-    tp = transcript(model) if model else ""
+    tp = transcript(model, bash_first) if model else ""
     def call(ev, **kw):
         env = dict(os.environ, LEAN_FORGE_JEV="off")
         return subprocess.run([sys.executable, H, ev], input=json.dumps({"session_id": sid, "cwd": REPO, "transcript_path": tp, **kw}),
@@ -36,7 +38,7 @@ def session(tag, model):
 bash = lambda c: {"tool_name": "Bash", "tool_input": {"command": c}}
 WRITE = "cat > app/new.py <<'EOF'\nB = 2\nEOF"
 
-# 2. Opus 5.5: closed gate denies shell writes, not reads; another model keeps plain lean-forge behavior
+# 2. bashFirst session: closed gate denies shell writes, not reads, for any model; without bashFirst, plain lean-forge
 call, sid = session("o55", "claude-opus-5-5")
 call("prompt", prompt="새 모듈 만들어 줘")
 assert denied(call("pre", tool_use_id="t1", **bash(WRITE))), "5.5: shell write denied while closed"
@@ -44,10 +46,13 @@ assert not denied(call("pre", tool_use_id="t2", **bash("cat app/calc.py"))), "5.
 call("post", tool_use_id="t2", **bash("cat app/calc.py"))
 call2, _ = session("o5", "claude-opus-5")
 call2("prompt", prompt="새 모듈 만들어 줘")
-assert not denied(call2("pre", tool_use_id="u1", **bash(WRITE))), "other model: Bash untouched (plain lean-forge)"
+assert denied(call2("pre", tool_use_id="u1", **bash(WRITE))), "bashFirst + another model: shell write denied too"
+call4, _ = session("nobf", "claude-opus-5-5", bash_first=None)
+call4("prompt", prompt="새 모듈 만들어 줘")
+assert not denied(call4("pre", tool_use_id="w1", **bash(WRITE))), "no bashFirst steering recorded: Bash untouched (plain lean-forge)"
 call3, _ = session("unknown", None)
 call3("prompt", prompt="새 모듈 만들어 줘")
-assert denied(call3("pre", tool_use_id="v1", **bash(WRITE))), "unknown model (first call): 5.5 rules apply"
+assert denied(call3("pre", tool_use_id="v1", **bash(WRITE))), "transcript not written yet: shell rules apply"
 
 # 3. a background-task notice does not re-triage the gate
 call("stop"); st = json.load(open(f"{S}/{sid}.json")); assert st["state"] == "asked"
@@ -73,4 +78,6 @@ assert not os.path.exists(f"{REPO}/app/new.py") and os.path.exists(os.path.join(
 
 for f in glob.glob(f"{S}/selftest55-*-{os.getpid()}.*") + [ledger]:
     os.remove(f)
-print("shell ok (write heuristic, 5.5-only gate, notification, Castra ledger, undo)")
+for d in glob.glob(os.path.join(S, "snapshots", f"selftest55-*-{os.getpid()}")):
+    import shutil; shutil.rmtree(d)
+print("shell ok (write heuristic, bashFirst-keyed gate, notification, Castra ledger, undo)")
