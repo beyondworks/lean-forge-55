@@ -72,5 +72,13 @@ callc("stop")
 callc("prompt", prompt="송장을 PDF로 뽑는 기능 만들어 줘. 거래처에 메일로 보낼 거야.", transcript_path=tc)
 assert json.load(open(spc))["state"] == "closed", "an unrelated new request is triaged from scratch"
 
+# the user can switch the gate off for one session: that session's writes stay open, others are untouched
+callo, _, spo = session("off")
+open(spo.replace(".json", ".off"), "w").write("switched off by the user\n")
+callo("prompt", prompt="송장을 PDF로 뽑는 기능 만들어 줘. 거래처에 메일로 보낼 거야.")
+assert not denied(callo("pre", tool_name="Write")), "a session switched off keeps edits open"
+callo("stop")
+assert json.load(open(spo))["state"] == "open", "a switched-off session never turns to asked"
+
 for f in glob.glob(f"{S}/selftest-*-{os.getpid()}.*"): os.remove(f)
 print("forge ok (settle fallback, settle live Jev, reply vs new request)")

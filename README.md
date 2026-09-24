@@ -126,6 +126,17 @@ python3 "<plugin root>/scripts/lf55_snapshot.py" undo --session <session id>
 It restores the files, moves files created during that turn into an aside folder (nothing is deleted), and keeps a
 copy of what it replaced, so the undo can itself be reversed. The `lean-forge-55:undo` skill runs it for you.
 
+**Turn the gate off for one session:** if the gate keeps getting in the way of a session where you give design and
+feature direction as you go, create an empty file named after that session's id. Other sessions are unaffected; the
+Castra ledger and shell undo keep working. Delete the file to turn the gate back on.
+
+```bash
+touch ~/.cache/lean-forge-55/<session id>.off
+```
+
+The session id is the transcript's file name under `~/.claude/projects/`. The change applies from the next tool call,
+without restarting the session.
+
 Self-tests: `python3 hooks/test_forge.py`, `python3 hooks/test_bundle.py`, `python3 hooks/test_shell.py`.
 
 ## Limits

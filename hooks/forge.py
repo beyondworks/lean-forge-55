@@ -194,6 +194,9 @@ def main():
     except Exception:
         st = {"state": "closed", "prompt_at": 0}
     now = time.time()
+    off = os.path.exists(f"{STATE_DIR}/{sid}.off")  # the user switched the gate off for this session only
+    if off:
+        st["state"] = "open"
 
     if ev == "prompt":
         if "<task-notification>" in inp.get("prompt", ""):
@@ -206,7 +209,7 @@ def main():
             opened = st.get("state") == "asked"
         else:  # continuing, approving or correcting the agent's plan, fixes and runs stay open; open-ended new work asks
             opened = p < NEEDS_THRESHOLD
-        st = {"state": "open" if opened else "closed", "prompt_at": now, "jev": p, "hatch": p is None,
+        st = {"state": "open" if opened or off else "closed", "prompt_at": now, "jev": p, "hatch": p is None,
               "model": model, "bash_first": bf}
 
     elif ev == "pre" and inp.get("tool_name") == "Bash":

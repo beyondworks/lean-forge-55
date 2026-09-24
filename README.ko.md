@@ -123,6 +123,17 @@ python3 "<플러그인 경로>/scripts/lf55_snapshot.py" undo --session <세션 
 파일을 복원하고, 그 턴에 새로 생긴 파일은 보관 폴더로 옮기며(지우지 않습니다), 덮어쓴 내용의 사본도 남깁니다. 그래서
 되돌리기 자체도 되돌릴 수 있습니다. `lean-forge-55:undo` 스킬이 이 명령을 대신 실행합니다.
 
+**세션 하나만 게이트 끄기:** 디자인이나 기능 방향을 대화하면서 바로 정해 가는 세션에서 게이트가 계속 작업을 막으면,
+그 세션 ID로 빈 파일을 하나 만드세요. 다른 세션에는 영향이 없고, Castra 장부와 셸 되돌리기는 계속 작동합니다. 파일을
+지우면 게이트가 다시 켜집니다.
+
+```bash
+touch ~/.cache/lean-forge-55/<세션 ID>.off
+```
+
+세션 ID는 `~/.claude/projects/` 아래에 있는 대화 기록 파일의 이름입니다. 세션을 다시 시작하지 않아도 다음 도구
+호출부터 적용됩니다.
+
 자체 테스트: `python3 hooks/test_forge.py`, `python3 hooks/test_bundle.py`, `python3 hooks/test_shell.py`
 
 ## 한계
