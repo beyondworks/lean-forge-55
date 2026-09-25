@@ -149,7 +149,7 @@ touch ~/.cache/lean-forge-55/<세션 ID>.off
 ## 출처
 
 - [lean-forge](https://github.com/beyondworks/lean-forge) — MIT
-- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, 그대로 포함 ([라이선스](vendor-licenses/castra-LICENSE))
+- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, 한 규칙만 좁혀 포함: `.env` 읽기는 명령줄 어디에 그 글자가 있는지가 아니라 명령이 실제로 여는 파일로 판정합니다 ([라이선스](vendor-licenses/castra-LICENSE))
 - [Ponytail](https://github.com/DietrichGebert/ponytail) 4.5.0, Dietrich Gebert — MIT, 한 문장만 고쳐 포함 ([라이선스](vendor-licenses/ponytail-LICENSE))
 - [Jev](https://docs.typesafe.ai), TypeSafe — 외부 API
 - 붙여 넣은 텍스트 안내 문구는 Anthropic의 [Prompting Claude Opus 5.5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)에서 인용했습니다
