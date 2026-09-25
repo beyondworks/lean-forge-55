@@ -153,7 +153,7 @@ Self-tests: `python3 hooks/test_forge.py`, `python3 hooks/test_bundle.py`, `pyth
 ## Credits
 
 - [lean-forge](https://github.com/beyondworks/lean-forge) — MIT
-- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, vendored with one rule narrowed: `.env` reads are judged by the file a command opens, not by the word anywhere in the command line ([license](vendor-licenses/castra-LICENSE))
+- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, vendored with the guardian's matching narrowed: rules apply to what a command runs, not to words in data (here-document bodies written to files, searches, comments), and `git -C …` no longer hides a subcommand ([license](vendor-licenses/castra-LICENSE))
 - [Ponytail](https://github.com/DietrichGebert/ponytail) 4.5.0 by Dietrich Gebert — MIT, vendored with one sentence changed ([license](vendor-licenses/ponytail-LICENSE))
 - [Jev](https://docs.typesafe.ai) by TypeSafe — external API
 - The pasted-text note is quoted from Anthropic's [Prompting Claude Opus 5.5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)
