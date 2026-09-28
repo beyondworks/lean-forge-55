@@ -23,15 +23,22 @@ import lf55_snapshot as snap
 STATE_DIR = os.path.expanduser("~/.cache/lean-forge-55")
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 NEEDS_Q = {"needs_decision": {"type": "noul", "instructions":
-    "The user's new message is a request to a coding agent; the agent's last message and a note on how this user works are "
-    "given as context. To carry out the new message, must the agent choose something the user will see or rely on that "
-    "neither the message nor the conversation settles: an output format, names or labels, a screen or interaction design, "
-    "a policy or business rule, or one of several meaningfully different behaviors? Answer no when the work is fixing a "
-    "reported problem so things work as intended, investigating, checking, running, testing, deploying, publishing, "
-    "restarting, processing a named file with stated parameters, following a standing procedure, or applying a change the "
-    "user described concretely or the agent already proposed."}}
+    "The user's new message is a request to a coding agent; the agent's last message and a note on how this user "
+    "works are given as context. Judge only the work the agent must carry out now. To carry it out, must the agent "
+    "choose something the user will see or rely on that neither the message nor the conversation settles: an output "
+    "format, names or labels, a screen or interaction design, a policy or business rule, or one of several "
+    "meaningfully different behaviors? Answer no when the work is fixing a reported problem so things work as "
+    "intended, investigating, checking, running, testing, committing, deploying, publishing, restarting, processing a "
+    "named file with stated parameters, following a standing procedure, or applying a change the user described "
+    "concretely or the agent already proposed. Also answer no when the user answers the agent's questions or picks "
+    "among its options, even if the answer adds constraints; when the user leaves the choices to the agent (for "
+    "example 'your call', 'go with your recommendation', '너네가 결정해', '알아서 해', '권장안대로'); and when the message tells the "
+    "agent to go ahead with settled work and also asks questions or floats ideas, since those are answered in words, "
+    "not built."}}
 # ponytail: calibrated on the author's own messages: 100 labeled to choose the question and threshold, 100 fresh ones held
 # out (must-ask scored 0.85-0.96; wrongly closed 1 of 42, wrongly opened 0 of 5). Re-check on your own traffic.
+# 2026-09-28: the answer / hand-off / go-ahead-plus-question clauses were added after 25 real messages the gate closed wrongly
+# (answers with added constraints, "권장안대로", "커밋해줘. 그리고 …?"): wrongly closed 16-19/25 -> 7/25, held-out unchanged.
 NEEDS_THRESHOLD = 0.8
 PROFILE = os.path.expanduser("~/.config/lean-forge-55/profile.txt")  # optional, private: how this user instructs agents
 CODE_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".rb", ".sh", ".bash", ".zsh", ".java", ".kt", ".swift",
@@ -101,30 +108,50 @@ WORDS = re.compile(r"(?:^|[\s;&|(])(sed\s+-i|perl\s+-\w*i\w*|tee|truncate|touch|
 GIT = re.compile(r"\bgit\s+(apply|checkout|restore|reset|stash|commit|merge|rebase|am|cherry-pick)\b")
 
 
-def inside(path, root):
-    """True when a literal path points into the project; False outside it or when it cannot be resolved."""
+CD = re.compile(r"(?:^|[;&|(]\s*)cd\s+(['\"]?)([^\s'\";|&)]+)\1")
+
+
+def inside(path, root, base=None):
+    """True when a literal path points into the project; False outside it or when it cannot be resolved.
+    A relative path is read from `base` (the command's own last `cd`), else from the session's working directory."""
     path = path.strip().strip("'\"")
     if not path or "{" in path or "$" in path or "*" in path:
         return False
     path = os.path.expanduser(path)
     if not os.path.isabs(path):
-        return True  # relative to the session's working directory
+        if base is None:
+            return True  # relative to the session's working directory
+        path = os.path.join(base, path)
     root = os.path.realpath(root)
     return os.path.realpath(path) == root or os.path.realpath(path).startswith(root + os.sep)
 
 
+def base_at(cmd, pos, root):
+    """Directory a relative path at `pos` is read from: the last `cd` before it, or None (the session's directory).
+    ponytail: follows literal `cd` only; a `cd` inside a subshell or with a variable falls back to the old answer."""
+    base = None
+    for m in CD.finditer(cmd, 0, pos):
+        d = os.path.expanduser(m.group(2))
+        if "$" in d or d == "-":
+            return None
+        base = d if os.path.isabs(d) else os.path.join(base or root, d)
+    return base
+
+
 def writes_files(cmd, root):
-    if any(TARGET.search(t) and inside(t, root) for _, t in REDIRECT.findall(cmd)):
+    at = lambda m, g: inside(m.group(g), root, base_at(cmd, m.start(), root))
+    if any(TARGET.search(m.group(2)) and at(m, 2) for m in REDIRECT.finditer(cmd)):
         return True
-    if any(not f and inside(p, root) for f, _, p in OPEN.findall(cmd)) or any(inside(p, root) for _, p in FS_WRITE.findall(cmd)):
+    if any(not m.group(1) and at(m, 3) for m in OPEN.finditer(cmd)) or any(at(m, 2) for m in FS_WRITE.finditer(cmd)):
         return True
-    for word, rest in WORDS.findall(cmd):
-        args = [a for a in rest.split() if not a.startswith("-")]
+    for m in WORDS.finditer(cmd):
+        word, base = m.group(1), base_at(cmd, m.start(), root)
+        args = [a for a in m.group(2).split() if not a.startswith("-")]
         if word.startswith("sed") and args:
             args = args[1:]  # the sed script, not a path
         if word == "cp":
             args = args[-1:]  # only the destination changes
-        if any(inside(a, root) for a in args):
+        if any(inside(a, root, base) for a in args):
             return True
     return bool(GIT.search(cmd))
 

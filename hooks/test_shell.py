@@ -22,6 +22,12 @@ for cmd in ("cat invoicer/*.py", "python3 -m unittest discover -s tests 2>&1 | t
     assert not w(cmd), f"not a project write: {cmd!r}"
 for cmd in ("python3 -c \"open('/repo/app/x.py','w')\"", "cp /tmp/a.py app/b.py", "mv app/a.py app/b.py"):
     assert w(cmd), f"project write: {cmd!r}"
+# a relative target follows the command's own `cd` (2026-09-28: a screenshot saved in the scratchpad was gated as a project write)
+for cmd in ("cd /private/tmp/claude-503/x/scratchpad && aside repl 'x' | base64 -d > shot.jpg", "cd ~/Desktop && echo x > note.md",
+            "cd /tmp/w; cp /repo/app/a.py b.py"):
+    assert not w(cmd), f"relative target after cd outside the project: {cmd!r}"
+for cmd in ("cd /repo/app && echo x > a.py", "cd app && echo x > a.py", "cd /tmp && ls; cd /repo && echo x > a.py"):
+    assert w(cmd), f"relative target after cd inside the project: {cmd!r}"
 
 # large trees: the cap notice comes once per session, and the tree is not rescanned after that
 import lf55_snapshot as snap
