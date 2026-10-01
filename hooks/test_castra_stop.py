@@ -73,6 +73,11 @@ assert item["status"] == "deferred" and item["reason"] == "external-access" and 
 edit(f"{W}/app/ext.py", body="x = 3\n")  # the agent's own new edit is a new change to check
 assert json.loads(run("status").stdout)["files"][os.path.realpath(f"{W}/app/ext.py")]["status"] == "pending"
 
+# the deferred notice is not repeated on every Stop
+edit, turn, stop, run = session("defer-once")
+turn(); edit(f"{W}/app/ext2.py"); run("defer", "--file", f"{W}/app/ext2.py", "--reason", "environment")
+assert "deferred/blocked" in stop() and "deferred/blocked" not in stop()
+
 # verify: --pending, --files-from -, and timeouts up to 1800 s (a 20-minute analysis was refused at 300 s)
 edit, turn, stop, run = session("verify")
 turn(); edit(f"{W}/app/a.py"); edit(f"{W}/app/b.py")

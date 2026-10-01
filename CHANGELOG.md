@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.7 — 2026-10-01
+
+- Advisory-only guardian text (the commit "risk advisory", and confirm-level notices in auto/bypass modes) comes once per
+  session and reason instead of on every command; denials and real permission prompts still come every time. Castra's
+  "deferred/blocked remain" note repeats only when the count grows. Per-step harness text that changes nothing is what
+  Claude Sonnet 5.5 may read as an injection attempt.
+
 ## 0.2.6 — 2026-10-01
 
 - `log.jsonl` names the installed release (read from plugin.json); 0.2.5 still wrote 0.2.4.

@@ -204,8 +204,9 @@ def stop_decision(cwd, session, active):
                 notes.append(f'Castra: {rest} unchecked files from earlier turns or subagents (castra_runtime.py status lists them); '
                              'report them, no block.')
             state['rest_noted'] = rest
-            if unresolved:
+            if unresolved > state.get('unresolved_noted', 0):  # said again only when the count grows
                 notes.append(f'Castra: {unresolved} deferred/blocked items remain unverified; report the limitation.')
+            state['unresolved_noted'] = unresolved
             return {'systemMessage': ' '.join(notes)} if notes else {}
         count = state.get('stop_blocks', 0)
         count = count if isinstance(count, int) else 0

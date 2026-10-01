@@ -115,4 +115,14 @@ out = hook("ponytail-activate.js", {"hook_event_name": "SessionStart", "session_
 assert "PONYTAIL" in out and "Once the outcome-changing decisions are settled" in out, "ponytail patched rule injected"
 assert "Never stall on an answer you can default." not in out.replace("After SETTLE, never stall", ""), "old rule gone"
 
+
+# 0.2.6+: advisory-only guardian text comes once per session and reason; denials and real prompts repeat
+def guard(cmd, mode, sid="adv-once"):
+    return subprocess.run([sys.executable, os.path.join(ROOT, "hooks", "castra-guardian.py")], capture_output=True, text=True, env=ENV,
+                          input=json.dumps({"session_id": sid, "tool_name": "Bash", "tool_input": {"command": cmd},
+                                            "permission_mode": mode, "transcript_path": ""})).stdout
+assert "advisory" in guard("git commit -m x", "bypassPermissions") and "advisory" not in guard("git commit -m y", "bypassPermissions")
+assert "advisory" in guard("rm -rf build", "bypassPermissions") and guard("rm -rf dist", "bypassPermissions").strip() == "{}"
+assert '"ask"' in guard("rm -rf build", "default") and '"ask"' in guard("rm -rf build", "default"), "real prompts repeat"
+assert '"deny"' in guard("cat .env", "bypassPermissions") and '"deny"' in guard("cat .env", "bypassPermissions"), "denials repeat"
 print("bundle ok (guardian, release gate, posture, evidence ledger, ponytail)")

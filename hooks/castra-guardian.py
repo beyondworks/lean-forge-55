@@ -24,10 +24,37 @@ except (AttributeError, OSError):
 NO_PROMPT_MODES = {"auto", "bypassPermissions"}
 
 
+def first_time(payload, key):
+    """True the first time this session sees this advisory. Advice repeated after every commit changes nothing and,
+    on models that read per-step harness text as injected instructions, does harm. Denials and real prompts repeat."""
+    import hashlib
+    sid = payload.get("session_id") if isinstance(payload, dict) else None
+    if not sid:
+        return True
+    root = pathlib.Path(os.environ.get("CASTRA_HOME") or pathlib.Path.home() / ".castra") / "advised"
+    path = root / (hashlib.sha256(sid.encode()).hexdigest()[:24] + ".json")
+    try:
+        seen = set(json.loads(path.read_text()))
+    except Exception:
+        seen = set()
+    if key in seen:
+        return False
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(sorted(seen | {key})))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+    return True
+
+
 def confirmation(payload, reason):
-    """ask 판정을 권한 모드에 맞춰 낸다. 창을 띄우지 않는 모드면 참고로만 알린다."""
+    """ask 판정을 권한 모드에 맞춰 낸다. 창을 띄우지 않는 모드면 참고로만, 세션에서 사유마다 한 번 알린다."""
     mode = payload.get("permission_mode") if isinstance(payload, dict) else None
     if mode in NO_PROMPT_MODES:
+        if not first_time(payload, "confirm:" + reason):
+            return {}
         return {"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "additionalContext": f"Castra advisory, not prompted in {mode} mode: {reason}",
@@ -142,7 +169,7 @@ def main():
         print(json.dumps(confirmation(payload,
             f"castra-guardian: {reasons}. Use the platform's permission decision for this exact action.")))
         return
-    if grade == "pre_approval" or escalated:
+    if (grade == "pre_approval" or escalated) and first_time(payload, "advisory:" + reasons):
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "additionalContext": "Castra risk advisory: retain specific existing user authorization; this heuristic does not grant it. " + reasons,
