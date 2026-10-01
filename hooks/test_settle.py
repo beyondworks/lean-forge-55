@@ -162,6 +162,24 @@ t = transcript(("user", "이전 요청"), ("agent", "설명이 깁니다. " * 20
                ("agent", "확인했습니다. 배포 방식 두 가지를 정해 주셔야 이어서 진행할 수 있습니다."))
 assert "정해 주셔야" in lam(t), "a real case: the question was in the message written after the Stop-hook nudge"
 
+# Codex, log-only (one week of measurement before Codex switches over): nothing is printed, the would-be decision and
+# the model (from the rollout's turn_context) are logged; apply_patch is an edit tool and its file paths decide scratch
+CODEX = tempfile.mktemp(suffix=".jsonl", dir=S)
+open(CODEX, "w").write(json.dumps({"type": "turn_context", "payload": {"model": "gpt-6-luna"}}) + "\n")
+def codex(ev, jev=OK, **kw):
+    env = dict(os.environ, LF55_STATE_DIR=S, LF55_CONFIG=CFG, LEAN_FORGE_JEV=jev, TMPDIR=os.path.join(S, "tmp"), LF55_LOG_ONLY="1")
+    return subprocess.run([sys.executable, H, ev], capture_output=True, text=True, env=env,
+                          input=json.dumps({"session_id": "t-codex", "cwd": REPO, "transcript_path": CODEX, **kw})).stdout
+codex("prompt", jev=CLOSE_NEW, prompt="결제 화면 새로 짜 줘", last_assistant_message="")
+assert codex("pre", tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Add File: app/pay.jsx\n+x\n*** End Patch"}) == ""
+assert codex("pre", tool_name="Bash", tool_input={"command": "echo x > app/pay.jsx"}) == ""
+codex("pre", tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Add File: /private/tmp/claude-1/s/scratchpad/d.md\n+x\n*** End Patch"})
+codex("stop"); codex("prompt", jev=OPEN_ASK, prompt="A안으로 해", last_assistant_message="A안과 B안 중 어느 쪽으로 할까요?")
+L = [json.loads(l) for l in open(f"{S}/log.jsonl") if '"t-codex"' in l]
+pres = [x for x in L if x["ev"] == "pre"]
+assert [x.get("would") for x in pres] == [["deny"], ["deny"], None] and pres[-1]["rule"] == "scratch", pres
+assert all(x["model"] == "gpt-6-luna" for x in L) and L[-1]["rule"] == "reply-to-question" and L[-1]["agent_len"] > 0, L[-1]
+
 # the log has what measuring needs and no message text
 lines = [json.loads(l) for l in open(f"{S}/log.jsonl")]
 assert any(l.get("rule") == "reply-to-question" for l in lines) and any(l.get("deny") == "settle-jev" for l in lines)

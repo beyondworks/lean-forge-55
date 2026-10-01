@@ -27,7 +27,9 @@ try:  # the log names the release that made each decision
 except Exception:
     VERSION = "?"
 STATE_DIR = os.environ.get("LF55_STATE_DIR") or os.path.expanduser("~/.cache/lean-forge-55")
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"}  # apply_patch: Codex
+LOG_ONLY = os.environ.get("LF55_LOG_ONLY") == "1"  # measure without acting: no denials, notes or undo copies
+WOULD = []  # what the hook would have said, in LOG_ONLY
 NEEDS_Q = {"needs_decision": {"type": "noul", "instructions":
     "The user's new message is a request to a coding agent; the agent's last message and a note on how this user "
     "works are given as context. Judge only the work the agent must carry out now. To carry it out, must the agent "
@@ -282,6 +284,9 @@ def current_model(inp, st):
                 if m.get("type") == "assistant" and (m.get("message") or {}).get("model"):
                     st["model"] = m["message"]["model"]  # follows /model switches
                     break
+                if m.get("type") == "turn_context" and (m.get("payload") or {}).get("model"):
+                    st["model"] = m["payload"]["model"]  # Codex
+                    break
     except OSError:
         pass
     return st.get("model")
@@ -315,6 +320,8 @@ def shell_rules(inp, st):
 
 
 def context(event, text):
+    if LOG_ONLY:
+        return WOULD.append("note")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}))
 
 
@@ -333,6 +340,8 @@ def denial(st, caught, en):
 
 
 def deny(reason):
+    if LOG_ONLY:
+        return WOULD.append("deny")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                              "permissionDecisionReason": reason}}))
 
@@ -400,6 +409,8 @@ def main():
            "keys": sorted(inp)}
 
     def done(**more):
+        if LOG_ONLY:
+            more.update(log_only=True, would=WOULD[:] or None, model=current_model(inp, st))
         rec.update(more, after=st.get("state"), ms=round((time.time() - t0) * 1000))
         log(**rec)
 
@@ -422,7 +433,8 @@ def main():
         # an answer or continuing work stays open, a closed request stays closed with the marker hatch.
         st = dict(base, state="open" if prev in ("open", "asked") else "closed", jev=None, hatch=True)
         save(sp, st)
-        agent = last_agent_message(inp.get("transcript_path", ""), prompt) if prev_at else ""
+        agent = (inp.get("last_assistant_message") or "" if "last_assistant_message" in inp  # Codex passes it
+                 else last_agent_message(inp.get("transcript_path", ""), prompt)) if prev_at else ""
         tj = time.time()
         got = judge(prompt, agent, prev == "asked")
         rec.update(jev_ms=round((time.time() - tj) * 1000), agent_len=len(agent))
@@ -450,6 +462,9 @@ def main():
                         "the scratchpad stay open. Send the user your questions (recommendation + a boundary example "
                         "each) and end your turn."))
             return done(deny="settle-shell")
+        if LOG_ONLY:
+            save(sp, st)
+            return done()
         notice = snap.before(sid, inp.get("tool_use_id", "x"), inp.get("cwd", "."), st.get("prompt_at", 0))
         if notice:
             context("PreToolUse", notice)
@@ -462,7 +477,7 @@ def main():
         return done(rule="answered-in-tool")
 
     elif ev == "post":
-        if inp.get("tool_name") != "Bash" or not shell_rules(inp, st):
+        if LOG_ONLY or inp.get("tool_name") != "Bash" or not shell_rules(inp, st):
             return
         changed, removed = snap.after(sid, inp.get("tool_use_id", "x"))
         if not changed and not removed:
@@ -486,8 +501,15 @@ def main():
     elif ev == "pre":
         if inp.get("tool_name") not in EDIT_TOOLS or st.get("state") == "open":
             return
-        path = (inp.get("tool_input") or {}).get("file_path") or (inp.get("tool_input") or {}).get("notebook_path") or ""
-        if path and scratch(path, snap.root_of(inp.get("cwd", "."))):
+        ti = inp.get("tool_input") or {}
+        paths = [ti.get("file_path") or ti.get("notebook_path") or ""]
+        if inp.get("tool_name") == "apply_patch":  # Codex: the patch names its files
+            text = ti.get("command") or ti.get("input") or ti.get("patch") or ""
+            paths = [os.path.join(inp.get("cwd", "."), p.strip()) if not os.path.isabs(p.strip()) else p.strip()
+                     for p in re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", str(text), re.M)
+                     for p in p if p] or [""]
+        path = paths[0]
+        if all(paths) and all(scratch(p, snap.root_of(inp.get("cwd", "."))) for p in paths):
             return done(rule="scratch")
         if not st.get("hatch", True):
             deny(denial(st, path, "lean-forge SETTLE: an independent check judged that this request leaves "

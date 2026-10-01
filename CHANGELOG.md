@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.9 — 2026-10-01
+
+- Codex support for a measurement week: `LF55_LOG_ONLY=1` makes forge.py decide and log (`would: deny/note`, model)
+  without denying, noting or copying the tree; `apply_patch` is an edit tool whose patch headers decide scratch paths;
+  Codex's `last_assistant_message` is the agent's last message; the model comes from the rollout's `turn_context`.
+
 ## 0.2.8 — 2026-10-01
 
 - Undo copies are kept 7 days: at session start, other sessions' snapshot folders whose newest file is older than
