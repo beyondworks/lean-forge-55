@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.8 — 2026-10-01
+
+- Undo copies are kept 7 days: at session start, other sessions' snapshot folders whose newest file is older than
+  that are removed (the current session's folder stays). 252 MB had piled up in nine days.
+
 ## 0.2.7 — 2026-10-01
 
 - Advisory-only guardian text (the commit "risk advisory", and confirm-level notices in auto/bypass modes) comes once per

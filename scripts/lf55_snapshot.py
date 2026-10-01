@@ -44,6 +44,28 @@ def manifest(root):
     return out
 
 
+KEEP_DAYS = 7  # undo is for the last turns; older copies only fill the disk (252 MB had piled up by 2026-10-01)
+
+
+def prune(current=None, days=KEEP_DAYS):
+    """Remove session folders whose newest file is older than `days`; the current session's folder stays."""
+    removed = 0
+    try:
+        names = os.listdir(DIR)
+    except OSError:
+        return 0
+    cut = time.time() - days * 86400
+    for name in names:
+        d = os.path.join(DIR, name)
+        if name == current or not os.path.isdir(d):
+            continue
+        newest = max([os.path.getmtime(d)] + [os.path.getmtime(os.path.join(r, f)) for r, _, fs in os.walk(d) for f in fs])
+        if newest < cut:
+            shutil.rmtree(d, ignore_errors=True)
+            removed += 1
+    return removed
+
+
 def _sdir(sid):
     d = os.path.join(DIR, sid)
     os.makedirs(d, exist_ok=True)

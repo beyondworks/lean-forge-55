@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SessionStart: print protocol-55.md with this plugin's path and the session id filled in."""
+"""SessionStart: print protocol-55.md with this plugin's path and the session id filled in; drop undo copies older than 7 days."""
 import json, os, sys
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -8,3 +8,9 @@ try:
 except Exception:
     sid = "<session id>"
 print(open(os.path.join(root, "protocol-55.md")).read().replace("{ROOT}", root).replace("{SID}", sid))
+try:  # undo copies are kept 7 days
+    sys.path.insert(0, os.path.join(root, "scripts"))
+    import lf55_snapshot
+    lf55_snapshot.prune(current=sid)
+except Exception:
+    pass

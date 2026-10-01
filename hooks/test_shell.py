@@ -41,6 +41,17 @@ def before_in_new_process(call_id):  # hooks run as separate processes; so must 
 first, again = before_in_new_process("a"), before_in_new_process("b")
 assert first and not again, (first, again)
 
+# undo copies older than 7 days are dropped at session start; recent ones and the current session's stay
+old_d, new_d, cur_d = (os.path.join(snap.DIR, n) for n in ("selftest55-old", "selftest55-new", "selftest55-cur"))
+for d in (old_d, new_d, cur_d):
+    os.makedirs(d, exist_ok=True); open(os.path.join(d, "turn-1.json"), "w").write("{}")
+past = __import__("time").time() - 8 * 86400
+for d in (old_d, cur_d):
+    os.utime(os.path.join(d, "turn-1.json"), (past, past)); os.utime(d, (past, past))
+subprocess.run([sys.executable, os.path.join(HERE, "intro55.py")], input=json.dumps({"session_id": "selftest55-cur"}),
+               capture_output=True, text=True, env=dict(os.environ, LF55_STATE_DIR=S))
+assert not os.path.exists(old_d) and os.path.exists(new_d) and os.path.exists(cur_d), "7-day retention"
+
 # a repo and a transcript naming the model
 REPO = tempfile.mkdtemp(prefix="lf55-")
 subprocess.run("git init -q && mkdir app && printf 'A = 1\\n' > app/calc.py && git add -A && "
