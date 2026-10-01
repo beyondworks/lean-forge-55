@@ -4,14 +4,15 @@ import glob, hashlib, json, os, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 H = os.path.join(HERE, "forge.py")
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
-S = os.path.expanduser("~/.cache/lean-forge-55")
+S = tempfile.mkdtemp(prefix="lf55-shell-state-")
+os.environ["LF55_STATE_DIR"] = S
 denied = lambda out: '"deny"' in out
 
 # 1. what counts as a shell write (gate heuristic)
 ns = {"__file__": H}; exec(open(H).read().split("def current_model")[0], ns)
 w = lambda c: ns["writes_files"](c, "/repo")
 for cmd in ("cat > invoicer/export.py <<'EOF'\nx\nEOF", "echo hi >> notes.md", "sed -i '' 's/a/b/' a.py", "tee out/x.csv",
-            "python3 - <<'EOF'\nopen('invoicer/calc.py','w').write(s)\nEOF", "git commit -qm x", "rm invoicer/old.py"):
+            "python3 - <<'EOF'\nopen('invoicer/calc.py','w').write(s)\nEOF", "git reset --hard", "rm invoicer/old.py"):
     assert w(cmd), f"write: {cmd!r}"
 for cmd in ("cat invoicer/*.py", "python3 -m unittest discover -s tests 2>&1 | tail -3", "grep -rn total . > /dev/null",
             "python3 -c 'print(3 > 2, 0.1 > 0.05)'", "ls > /tmp/list.txt", "def f() -> int: pass", "git status && git diff",

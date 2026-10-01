@@ -74,6 +74,28 @@ author's data the note removed three of five wrong closes on the tuning sample.
 Also in v0.2: writes outside the project (temp files, caches, your own notes) are not gated; on trees over 5,000 files
 the "tracking is off" notice appears once per session instead of on every command.
 
+### v0.2.4: the gate stops getting in the way of work already under way
+
+Replaying the author's 194 sessions since v0.2 through the hooks (same history, same Jev answers), v0.2.3 closed writes
+after 137 of 2,388 messages and blocked 30 tool calls; v0.2.4 closes after 94 and blocks 12. What changed:
+
+- **A reply opens.** After a turn that ended asking, the next message opens writes unless Jev judges it a new,
+  unrelated task. Answering inside `AskUserQuestion` opens too. (Most replies already carried the decisions.)
+- **Work under way is not interrupted.** A message that arrives while the agent is still working joins that work; a
+  message from another session or a background-task notice leaves the gate as it was.
+- **Drafts and notes stay writable** while the gate is closed: temp folders and the scratchpad, `~/.claude/plans/`,
+  Claude Code memory folders and `SESSION_HANDOVER.md` at the repository root. "Show me a draft first" opens.
+- **git:** commits, merges, rebases and new branches are no longer SETTLE's business (protocol rule 2 already keeps
+  them to when the user names them); `restore`, `checkout -- <path>`, `stash`, `reset`, `apply` and `am` stay gated.
+- **Robust state.** The state file is replaced atomically; the decision is saved before Jev is asked, so a hook killed
+  on a busy machine leaves a sane state; if Jev is unavailable, open work stays open.
+- **Measured, not guessed.** Every hook event appends one line to `~/.cache/lean-forge-55/log.jsonl` (no message
+  text; lines older than 30 days are pruned). The per-prompt context-capacity reminder is gone.
+
+**Your own standing procedures and note folders (optional).** `~/.config/lean-forge-55/config.json` can list slash
+commands that always open (`"open_commands": ["handoff", "inbox"]`) and extra folders that hold notes rather than
+results (`"scratch_paths": ["~/notes/sessions"]`). Keep it private, like `profile.txt`.
+
 ## Results
 
 *Measured with the v0.1 gate.*
@@ -137,7 +159,8 @@ touch ~/.cache/lean-forge-55/<session id>.off
 The session id is the transcript's file name under `~/.claude/projects/`. The change applies from the next tool call,
 without restarting the session.
 
-Self-tests: `python3 hooks/test_forge.py`, `python3 hooks/test_bundle.py`, `python3 hooks/test_shell.py`.
+Self-tests: `python3 hooks/test_settle.py`, `python3 hooks/test_shell.py`, `python3 hooks/test_bundle.py` (offline) and
+`python3 hooks/test_forge.py` (live Jev). `scripts/release.sh` runs them all before tagging.
 
 ## Limits
 

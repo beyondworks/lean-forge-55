@@ -12,7 +12,7 @@ ponytail: size/mtime manifest, whole-tree tar per turn; capped, skipped (with a 
 """
 import hashlib, json, os, shutil, subprocess, sys, tarfile, time
 
-DIR = os.path.expanduser("~/.cache/lean-forge-55/snapshots")
+DIR = os.path.join(os.environ.get("LF55_STATE_DIR") or os.path.expanduser("~/.cache/lean-forge-55"), "snapshots")
 SKIP = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", ".cache", "dist", "build", "target", ".tox"}
 MAX_FILES, MAX_BYTES = 5000, 30 * 1024 * 1024
 

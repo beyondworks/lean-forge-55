@@ -7,20 +7,23 @@ Fable 5.1 alike. In such sessions (or while the transcript does not show yet) th
 Bash call is diffed against the tree so changed files enter the Castra ledger and can be undone. Sessions without
 bashFirst get plain lean-forge behavior. The Opus 5.5 prompt rules live in protocol-55.md.
 
-A message after a turn that ended without edits opens the gate only if Jev judges it a reply to that turn;
-a new request there is triaged from scratch.
+A message after a turn that ended closed (the agent asked) opens the gate unless Jev judges it a new, unrelated task;
+that one is triaged from scratch. A message that arrives while the agent is still working, a message from another
+session and a background-task notice leave the gate as it is. If Jev is unavailable, the gate keeps what it was
+(open work stays open) and a one-line marker file opens a closed mechanical request.
 
-Per request, edits stay closed until the user answered our questions, unless Jev judges the request
-mechanical. If Jev is unavailable, a one-line marker file opens a mechanical request (fallback).
-ponytail: per-session JSON state, no locking; one session's hooks run sequentially.
+State is one JSON file per session, replaced atomically; every hook event appends one line to log.jsonl (no message
+text, only lengths and hashes; lines older than 30 days are pruned).
 """
-import json, os, re, subprocess, sys, time, urllib.request
+import hashlib, json, os, random, re, subprocess, sys, time, urllib.request
+from datetime import datetime
 from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "scripts")]
 import lf55_snapshot as snap
 
-STATE_DIR = os.path.expanduser("~/.cache/lean-forge-55")
+VERSION = "0.2.4"
+STATE_DIR = os.environ.get("LF55_STATE_DIR") or os.path.expanduser("~/.cache/lean-forge-55")
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 NEEDS_Q = {"needs_decision": {"type": "noul", "instructions":
     "The user's new message is a request to a coding agent; the agent's last message and a note on how this user "
@@ -32,23 +35,44 @@ NEEDS_Q = {"needs_decision": {"type": "noul", "instructions":
     "named file with stated parameters, following a standing procedure, or applying a change the user described "
     "concretely or the agent already proposed. Also answer no when the user answers the agent's questions or picks "
     "among its options, even if the answer adds constraints; when the user leaves the choices to the agent (for "
-    "example 'your call', 'go with your recommendation', '너네가 결정해', '알아서 해', '권장안대로'); and when the message tells the "
-    "agent to go ahead with settled work and also asks questions or floats ideas, since those are answered in words, "
-    "not built."}}
+    "example 'your call', 'go with your recommendation', '너네가 결정해', '알아서 해', '권장안대로'); when the user asks to "
+    "see a draft, mockup or sample before deciding; and when the message tells the agent to go ahead with settled work "
+    "and also asks questions or floats ideas, since those are answered in words, not built."}}
+NEW_Q = {"new_task": {"type": "noul", "instructions":
+    "The agent's last message ended its turn waiting for the user: it asked questions, offered options or asked for "
+    "approval. Is the user's new message a new, unrelated task rather than a reply to that message (an answer, a "
+    "choice, a correction, a go-ahead, or a follow-up question about it)?"}}
 # ponytail: calibrated on the author's own messages: 100 labeled to choose the question and threshold, 100 fresh ones held
 # out (must-ask scored 0.85-0.96; wrongly closed 1 of 42, wrongly opened 0 of 5). Re-check on your own traffic.
 # 2026-09-28: the answer / hand-off / go-ahead-plus-question clauses were added after 25 real messages the gate closed wrongly
 # (answers with added constraints, "권장안대로", "커밋해줘. 그리고 …?"): wrongly closed 16-19/25 -> 7/25, held-out unchanged.
+# 0.2.4: "show me a draft first" opens (a draft is how such questions get answered), and a reply to an asking turn opens
+# unless NEW_Q says it is a new task. The 85 real messages after an asking turn: 36 changed the result through the reply
+# itself, so asking happened; opening on the reply only skips a second, redundant round.
 NEEDS_THRESHOLD = 0.8
 PROFILE = os.path.expanduser("~/.config/lean-forge-55/profile.txt")  # optional, private: how this user instructs agents
+CONFIG = os.environ.get("LF55_CONFIG") or os.path.expanduser("~/.config/lean-forge-55/config.json")  # optional, private: {"open_commands": [...], "scratch_paths": [...]}
 CODE_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".rb", ".sh", ".bash", ".zsh", ".java", ".kt", ".swift",
                  ".c", ".cpp", ".css", ".scss", ".html", ".vue", ".svelte", ".ipynb", ".sql", ".yml", ".yaml"}  # Castra's set + config
+PEER = ("Another Claude session sent a message", "<cross-session-message")
 
 
-def jev(state, questions, name):
-    """Jev probability for one noul question, or None when Jev is unavailable (callers fall back)."""
-    if os.environ.get("LEAN_FORGE_JEV") == "off":
+def config():
+    try:
+        return json.load(open(CONFIG))
+    except Exception:
+        return {}
+
+
+def jev(state, questions, name=None):
+    """Jev probabilities {question: p} (or one p when `name` is given), or None when Jev is unavailable (callers fall back).
+    LEAN_FORGE_JEV=off switches Jev off; =fixed:a=0.1,b=0.9 answers fixed values (tests)."""
+    mode = os.environ.get("LEAN_FORGE_JEV", "")
+    if mode == "off":
         return None
+    if mode.startswith("fixed:"):
+        got = {k: float(v) for k, v in (kv.split("=") for kv in mode[6:].split(","))}
+        return got.get(name) if name else got
     try:
         key = os.environ.get("TYPESAFE_API_KEY") or subprocess.run(
             ["security", "find-generic-password", "-s", "TYPESAFE_API_KEY", "-w"],  # macOS keychain
@@ -59,41 +83,100 @@ def jev(state, questions, name):
         req = urllib.request.Request("https://api.typesafe.ai/v1/systemone", data=body, method="POST",
                                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
                                               "User-Agent": "lean-forge"})  # the API's edge blocks Python-urllib's default UA (403, error 1010)
-        with urllib.request.urlopen(req, timeout=4) as r:
-            return json.load(r)["answers"][name]["noul"]
+        with urllib.request.urlopen(req, timeout=3) as r:  # the prompt hook has 8 s, and a busy machine eats some of it
+            got = {k: v["noul"] for k, v in json.load(r)["answers"].items()}
+        return got.get(name) if name else got
     except Exception:
         return None
 
 
-def needs_decision(prompt, agent):
-    """Probability that the request leaves a user-visible decision open, judged with the conversation and the user's habits."""
+def judge(prompt, agent, asked):
+    """Jev answers for this message: needs_decision, plus new_task when the last turn was waiting for the user."""
     state = {"agent_last_message": agent[-3000:], "user_new_message": prompt[:4000]}
     try:
         state["about_this_user"] = open(PROFILE).read().strip()[:2000]
     except OSError:
         pass
-    return jev(state, NEEDS_Q, "needs_decision")
+    return jev(state, dict(NEEDS_Q, **NEW_Q) if asked else NEEDS_Q)
 
 
-def last_agent_message(transcript_path):
-    """Text of the last assistant message in the session transcript ('' if unreadable)."""
+def needs_decision(prompt, agent):
+    """Probability that the request leaves a user-visible decision open (kept for the private calibration scripts)."""
+    got = judge(prompt, agent, False)
+    return got and got.get("needs_decision")
+
+
+def text_of(content):
+    if isinstance(content, str):
+        return content
+    return "".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+
+
+ASKS = re.compile(r"\?|？|알려 ?주|정해 ?주|말씀해 ?주|답해 ?주|골라 ?주|확인해 ?주")
+
+
+def tail(transcript_path, size=400_000):
     try:
         with open(transcript_path, "rb") as f:
-            f.seek(0, 2); f.seek(max(0, f.tell() - 400_000))
-            lines = f.read().decode("utf-8", "replace").splitlines()
+            f.seek(0, 2); f.seek(max(0, f.tell() - size))
+            return f.read().decode("utf-8", "replace").splitlines()
     except Exception:
-        return ""
-    for line in reversed(lines):
+        return []
+
+
+IDLE = 15 * 60  # ponytail: activity older than this is a turn that ended without a recorded Stop (app restart, resume)
+
+
+def mid_turn(transcript_path):
+    """True when the agent is still working: its latest activity comes after the last turn end (stop_hook_summary)
+    in the transcript and is recent. A turn started by a task notice or continued after a Stop-hook block counts;
+    a user interrupt or a session (re)start ends the turn."""
+    for line in reversed(tail(transcript_path)):
+        try:
+            m = json.loads(line)
+        except Exception:
+            continue
+        t, content = m.get("type"), (m.get("message") or {}).get("content")
+        if t == "system" and m.get("subtype") == "stop_hook_summary":
+            return False
+        if t == "attachment" and (m.get("attachment") or {}).get("hookEvent") == "SessionStart":
+            return False
+        tool_result = isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+        text = "" if t != "user" or tool_result else text_of(content).lstrip()
+        if t == "assistant" or tool_result or text.startswith("Stop hook feedback"):
+            try:
+                at = datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00")).timestamp()
+            except Exception:
+                return True
+            return time.time() - at < IDLE
+        if text.startswith("[Request interrupted"):
+            return False
+    return False
+
+
+def last_agent_message(transcript_path, prompt=""):
+    """What the agent said since the user's last message ('' if unreadable): the most recent block that asks something,
+    else the last block. (A closing line such as "1 check pending" often follows the question, e.g. after a Stop-hook
+    nudge; the question may also be in that closing message itself, so nothing is dropped.)"""
+    blocks = []
+    for line in reversed(tail(transcript_path)):
         try:
             m = json.loads(line)
         except Exception:
             continue
         content = (m.get("message") or {}).get("content")
         if m.get("type") == "assistant" and isinstance(content, list):
-            text = "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text").strip()
+            text = text_of(content).strip()
             if text:
-                return text[-4000:]
-    return ""
+                blocks.append(text)
+        elif m.get("type") == "user" and not (isinstance(content, list) and any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in content)):
+            text = text_of(content).strip()
+            if text and not m.get("isMeta") and not text.startswith("Stop hook feedback") and not (not blocks and text == prompt.strip()):
+                break  # the user's previous message: the agent's turn starts after it
+    asking = [b for b in blocks if ASKS.search(b[-600:])]
+    best = asking[0] if asking else (blocks[0] if blocks else "")
+    return best[-4000:]
 
 
 # A shell command that writes into the project: a redirect to a file path, an in-place editor, a file-writing call,
@@ -105,15 +188,37 @@ TARGET = re.compile(r"(/|[A-Za-z_][\w-]*\.[A-Za-z]{1,8}$)")
 OPEN = re.compile(r"(?:open|Path)\(\s*([fbr]{0,2})(['\"])(.*?)\2\s*(?:,\s*[a-z]*\s*=?\s*['\"][wax]|\)\s*\.(?:write_text|write_bytes|open\(\s*['\"][wax]))")
 FS_WRITE = re.compile(r"(?:writeFileSync|fs\.writeFile)\(\s*(['\"])(.*?)\1")
 WORDS = re.compile(r"(?:^|[\s;&|(])(sed\s+-i|perl\s+-\w*i\w*|tee|truncate|touch|cp|mv|rm|install|patch)\b([^;&|\n]*)")
-GIT = re.compile(r"\bgit\s+(apply|checkout|restore|reset|stash|commit|merge|rebase|am|cherry-pick)\b")
-
-
+# git that overwrites or discards work in the tree; commits, merges, rebases and new branches are the user's to name
+# (protocol rule 2) and the guardian handles force pushes, so they are not SETTLE's business (0.2.4).
+GIT = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?(apply|restore|reset|stash|am|checkout\b(?!\s+(?:-q\s+)?-[bB]\b))")
 CD = re.compile(r"(?:^|[;&|(]\s*)cd\s+(['\"]?)([^\s'\";|&)]+)\1")
+ASSIGN = re.compile(r"(?:^|[;&|(\s])([A-Za-z_]\w*)=(['\"]?)([^\s'\";&|)]+)\2(?=[\s;&|)]|$)")
+
+
+def subst(text, cmd, pos):
+    """Expand $NAME / ${NAME} from literal `NAME=value` assignments earlier in the same command."""
+    if "$" not in text:
+        return text
+    env = {m.group(1): m.group(3) for m in ASSIGN.finditer(cmd, 0, pos)}
+    return re.sub(r"\$\{?([A-Za-z_]\w*)\}?", lambda m: env.get(m.group(1), m.group(0)), text)
+
+
+def scratch(path, root):
+    """Paths that hold drafts, notes and handovers rather than the result: writable while SETTLE is closed."""
+    p = os.path.realpath(os.path.expanduser(path))
+    dirs = ["/tmp", "/private/tmp", os.environ.get("TMPDIR", "/tmp"), "~/.claude/plans"]
+    dirs += config().get("scratch_paths", [])
+    if any(p == d or p.startswith(d.rstrip("/") + "/") for d in (os.path.realpath(os.path.expanduser(x)) for x in dirs)):
+        return True
+    if re.match(re.escape(os.path.realpath(os.path.expanduser("~/.claude/projects"))) + r"/[^/]+/memory/", p):
+        return True
+    return p == os.path.join(os.path.realpath(root), "SESSION_HANDOVER.md")
 
 
 def inside(path, root, base=None):
-    """True when a literal path points into the project; False outside it or when it cannot be resolved.
-    A relative path is read from `base` (the command's own last `cd`), else from the session's working directory."""
+    """True when a literal path points into the project's result; False outside it, in scratch places, or when it
+    cannot be resolved. A relative path is read from `base` (the command's own last `cd`), else from the session's
+    working directory."""
     path = path.strip().strip("'\"")
     if not path or "{" in path or "$" in path or "*" in path:
         return False
@@ -123,15 +228,16 @@ def inside(path, root, base=None):
             return True  # relative to the session's working directory
         path = os.path.join(base, path)
     root = os.path.realpath(root)
-    return os.path.realpath(path) == root or os.path.realpath(path).startswith(root + os.sep)
+    real = os.path.realpath(path)
+    return (real == root or real.startswith(root + os.sep)) and not scratch(real, root)
 
 
 def base_at(cmd, pos, root):
     """Directory a relative path at `pos` is read from: the last `cd` before it, or None (the session's directory).
-    ponytail: follows literal `cd` only; a `cd` inside a subshell or with a variable falls back to the old answer."""
+    ponytail: follows literal `cd` and `NAME=value` variables; a `cd` inside a subshell or from elsewhere falls back."""
     base = None
     for m in CD.finditer(cmd, 0, pos):
-        d = os.path.expanduser(m.group(2))
+        d = os.path.expanduser(subst(m.group(2), cmd, m.start()))
         if "$" in d or d == "-":
             return None
         base = d if os.path.isabs(d) else os.path.join(base or root, d)
@@ -139,14 +245,14 @@ def base_at(cmd, pos, root):
 
 
 def writes_files(cmd, root):
-    at = lambda m, g: inside(m.group(g), root, base_at(cmd, m.start(), root))
+    at = lambda m, g: inside(subst(m.group(g), cmd, m.start()), root, base_at(cmd, m.start(), root))
     if any(TARGET.search(m.group(2)) and at(m, 2) for m in REDIRECT.finditer(cmd)):
         return True
     if any(not m.group(1) and at(m, 3) for m in OPEN.finditer(cmd)) or any(at(m, 2) for m in FS_WRITE.finditer(cmd)):
         return True
     for m in WORDS.finditer(cmd):
         word, base = m.group(1), base_at(cmd, m.start(), root)
-        args = [a for a in m.group(2).split() if not a.startswith("-")]
+        args = [subst(a, cmd, m.start()) for a in m.group(2).split() if not a.startswith("-")]
         if word.startswith("sed") and args:
             args = args[1:]  # the sed script, not a path
         if word == "cp":
@@ -210,47 +316,126 @@ def deny(reason):
                                              "permissionDecisionReason": reason}}))
 
 
+def load(sp):
+    """The session's state; None when it has none yet. An unreadable file (half-written by a killed pre-0.2.4 hook)
+    is read again, then treated as open: losing the state must not lock the session."""
+    for _ in range(3):
+        try:
+            return json.load(open(sp))
+        except FileNotFoundError:
+            return None
+        except Exception:
+            time.sleep(0.02)
+    return {"state": "open", "prompt_at": 0, "recovered": True}
+
+
+def save(sp, st):
+    tmp = f"{sp}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, sp)  # atomic: a reader sees the old state or the new one, never half of it
+
+
+def log(**rec):
+    """One line per hook event, for measuring the gate on real traffic. No message text."""
+    path = f"{STATE_DIR}/log.jsonl"
+    try:
+        if random.random() < 0.01 and os.path.exists(path):  # prune lines older than 30 days now and then
+            cut = time.time() - 30 * 86400
+            keep = [l for l in open(path) if json.loads(l).get("t", 0) >= cut]
+            with open(path + ".tmp", "w") as f:
+                f.writelines(keep)
+            os.replace(path + ".tmp", path)
+        with open(path, "a") as f:
+            f.write(json.dumps(dict(t=round(time.time(), 3), v=VERSION, **rec), ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def origin(prompt):
+    """What submitted this prompt: a background-task notice, another session, a slash command, or the user."""
+    p = prompt.lstrip()
+    if p.startswith("<task-notification>"):
+        return "task"
+    if p.startswith(PEER):
+        return "peer"
+    m = re.match(r"/([\w:.-]+)(?=\s|$)", p) or re.search(r"<command-name>/([\w:.-]+)</command-name>", p)
+    return f"/{m.group(1)}" if m else "user"
+
+
 def main():
+    t0 = time.time()
     ev = sys.argv[1]
     inp = json.load(sys.stdin)
     sid = inp.get("session_id", "unknown")
     os.makedirs(STATE_DIR, exist_ok=True)
     sp, mech = f"{STATE_DIR}/{sid}.json", f"{STATE_DIR}/{sid}.mechanical"
-    try:
-        st = json.load(open(sp))
-    except Exception:
-        st = {"state": "closed", "prompt_at": 0}
+    st = load(sp) or {"state": "closed", "prompt_at": 0}
     now = time.time()
     off = os.path.exists(f"{STATE_DIR}/{sid}.off")  # the user switched the gate off for this session only
     if off:
         st["state"] = "open"
+    rec = {"sid": sid[:8], "ev": ev, "tool": inp.get("tool_name"), "before": st.get("state"), "model": st.get("model"),
+           "keys": sorted(inp)}
+
+    def done(**more):
+        rec.update(more, after=st.get("state"), ms=round((time.time() - t0) * 1000))
+        log(**rec)
 
     if ev == "prompt":
-        if "<task-notification>" in inp.get("prompt", ""):
-            return  # a background-task notice, not a user request: the gate keeps its state
-        model, bf = st.get("model"), st.get("bash_first")
         prompt = inp.get("prompt", "")
-        agent = last_agent_message(inp.get("transcript_path", "")) if st.get("prompt_at") else ""
-        p = needs_decision(prompt, agent)
-        if p is None:  # Jev unavailable: only a message after an asking turn counts as its answer; otherwise the hatch
-            opened = st.get("state") == "asked"
-        else:  # continuing, approving or correcting the agent's plan, fixes and runs stay open; open-ended new work asks
-            opened = p < NEEDS_THRESHOLD
-        st = {"state": "open" if opened or off else "closed", "prompt_at": now, "jev": p, "hatch": p is None,
-              "model": model, "bash_first": bf}
+        kind = origin(prompt)
+        rec.update(origin=kind, len=len(prompt), h=hashlib.sha1(prompt.encode()).hexdigest()[:10])
+        if kind in ("task", "peer"):
+            return done(rule="not-the-user")  # a notice or another session's message is not a request: state kept
+        if st.get("state") == "open" and mid_turn(inp.get("transcript_path", "")):
+            return done(rule="queued-while-working")  # the agent is mid-turn on settled work; this joins it
+        prev, prev_at = st.get("state"), st.get("prompt_at")
+        base = {"prompt_at": now, "model": st.get("model"), "bash_first": st.get("bash_first")}
+        if off or kind.lstrip("/") in config().get("open_commands", []):
+            st = dict(base, state="open", jev=None, hatch=False)
+            save(sp, st)
+            return done(rule="off" if off else "standing-command")
+        # Saved before Jev is asked, so a hook killed mid-call (busy machine, 8 s limit) leaves a sane state:
+        # an answer or continuing work stays open, a closed request stays closed with the marker hatch.
+        st = dict(base, state="open" if prev in ("open", "asked") else "closed", jev=None, hatch=True)
+        save(sp, st)
+        agent = last_agent_message(inp.get("transcript_path", ""), prompt) if prev_at else ""
+        tj = time.time()
+        got = judge(prompt, agent, prev == "asked")
+        rec.update(jev_ms=round((time.time() - tj) * 1000), agent_len=len(agent))
+        if got is None:
+            return done(rule="jev-unavailable")
+        p, p_new = got.get("needs_decision"), got.get("new_task")
+        if prev == "asked" and p_new is not None and p_new < NEEDS_THRESHOLD:
+            opened, rule = True, "reply-to-question"
+        else:
+            opened, rule = p is not None and p < NEEDS_THRESHOLD, "jev"
+        st.update(state="open" if opened else "closed", jev=p, jev_new=p_new, hatch=False)
+        save(sp, st)
+        return done(rule=rule, p=p, p_new=p_new)
 
     elif ev == "pre" and inp.get("tool_name") == "Bash":
         if not shell_rules(inp, st):
-            return json.dump(st, open(sp, "w"))
+            save(sp, st)
+            return done()
         cmd = (inp.get("tool_input") or {}).get("command", "")
         if st.get("state") != "open" and writes_files(cmd, snap.root_of(inp.get("cwd", "."))):
-            json.dump(st, open(sp, "w"))
-            return deny("lean-forge-55 SETTLE: file writes are closed, shell writes included, until the outcome-changing "
-                        "decisions are settled. Reading, searching and running tests stay open. Send the user your "
-                        "questions (recommendation + a boundary example each) and end your turn.")
+            save(sp, st)
+            deny("lean-forge-55 SETTLE: file writes are closed, shell writes included, until the outcome-changing "
+                 "decisions are settled. Reading, searching, running tests and writing drafts to the scratchpad stay "
+                 "open. Send the user your questions (recommendation + a boundary example each) and end your turn.")
+            return done(deny="settle-shell")
         notice = snap.before(sid, inp.get("tool_use_id", "x"), inp.get("cwd", "."), st.get("prompt_at", 0))
         if notice:
             context("PreToolUse", notice)
+        save(sp, st)
+        return done()
+
+    elif ev == "post" and inp.get("tool_name") == "AskUserQuestion":
+        st["state"] = "open"  # the user answered the agent's questions inside the tool
+        save(sp, st)
+        return done(rule="answered-in-tool")
 
     elif ev == "post":
         if inp.get("tool_name") != "Bash" or not shell_rules(inp, st):
@@ -272,22 +457,28 @@ def main():
                     "Do not continue building: tell the user, and offer to undo (lean-forge-55 undo).")
         else:
             context("PostToolUse", f"lean-forge-55: shell changes recorded for Castra verification and undo: {names}.")
+        return done(changed=len(changed) + len(removed))
 
     elif ev == "pre":
         if inp.get("tool_name") not in EDIT_TOOLS or st.get("state") == "open":
             return
+        path = (inp.get("tool_input") or {}).get("file_path") or (inp.get("tool_input") or {}).get("notebook_path") or ""
+        if path and scratch(path, snap.root_of(inp.get("cwd", "."))):
+            return done(rule="scratch")
         if not st.get("hatch", True):
-            return deny("lean-forge SETTLE: an independent check judged that this request leaves outcome-changing "
-                        "decisions open. Send the user your questions / confirm-by-example message and end your turn; "
-                        "edits open when they answer.")
+            deny("lean-forge SETTLE: an independent check judged that this request leaves outcome-changing "
+                 "decisions open. Send the user your questions / confirm-by-example message and end your turn; "
+                 "edits open when they answer. Drafts in the scratchpad stay writable.")
+            return done(deny="settle-jev")
         try:
             if os.path.getmtime(mech) >= st["prompt_at"] and open(mech).read().strip():
-                return
+                return done(rule="marker")
         except OSError:
             pass
-        return deny("lean-forge SETTLE: edits are closed until the outcome-changing decisions are settled. Either "
-                    "(a) send the user your questions and end your turn, or (b) if the request literally fixes the "
-                    f"result, run `echo '<one-line reason>' > {mech}` and retry the edit.")
+        deny("lean-forge SETTLE: edits are closed until the outcome-changing decisions are settled. Either "
+             "(a) send the user your questions and end your turn, or (b) if the request literally fixes the "
+             f"result, run `echo '<one-line reason>' > {mech}` and retry the edit.")
+        return done(deny="settle-fallback")
 
     elif ev == "stop":
         current_model(inp, st)
@@ -295,8 +486,11 @@ def main():
                       and os.path.getmtime(mech) >= st.get("prompt_at", 0))
         if st.get("state") == "closed" and not used_hatch:
             st["state"] = "asked"
+        save(sp, st)
+        return done()
 
-    json.dump(st, open(sp, "w"))
+    save(sp, st)
 
 
-main()
+if __name__ == "__main__":
+    main()

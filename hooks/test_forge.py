@@ -5,7 +5,8 @@ H = os.path.join(os.path.dirname(os.path.abspath(__file__)), "forge.py")
 REPO = tempfile.mkdtemp(prefix="lf-forge-")
 subprocess.run("git init -q && mkdir invoicer && echo '' > invoicer/calc.py && git add invoicer/calc.py && "
                "git -c user.email=t@t -c user.name=t commit -qm init", shell=True, cwd=REPO, check=True)
-S = os.path.expanduser("~/.cache/lean-forge-55")
+S = tempfile.mkdtemp(prefix="lf-forge-state-")
+os.environ["LF55_STATE_DIR"] = S
 denied = lambda out: '"deny"' in out
 
 def session(tag):
@@ -26,7 +27,10 @@ call("prompt", jev_off=True, prompt="answer")  # fallback path: the reply is jud
 assert not denied(call("pre", tool_name="Write")), "after ask + answer: open"
 call("stop")
 call("prompt", jev_off=True, prompt="y")
-assert denied(call("pre", tool_name="Edit")), "next new request closes again"
+assert not denied(call("pre", tool_name="Edit")), "Jev down: work that was open stays open (0.2.4)"
+call, mech, sp = session("fallback-new")
+call("prompt", jev_off=True, prompt="y")
+assert denied(call("pre", tool_name="Edit")), "Jev down, nothing open to continue: closed"
 time.sleep(0.01); open(mech, "w").write("typo fix\n")
 assert not denied(call("pre", tool_name="Edit")), "fallback hatch opens"
 
@@ -47,7 +51,8 @@ assert json.load(open(sp))["state"] == "asked", "a refused marker is not a used 
 # a turn that only explained something must not turn the next new request into an "answer"
 def transcript(text):
     t = tempfile.mktemp(suffix=".jsonl")
-    open(t, "w").write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}) + "\n")
+    open(t, "w").write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}) + "\n"
+                       + json.dumps({"type": "system", "subtype": "stop_hook_summary"}) + "\n")  # the turn ended
     return t
 call, mech, sp = session("reply")
 call("prompt", prompt="invoicer/calc.py의 total 함수가 뭐 하는 거야?")
@@ -80,5 +85,4 @@ assert not denied(callo("pre", tool_name="Write")), "a session switched off keep
 callo("stop")
 assert json.load(open(spo))["state"] == "open", "a switched-off session never turns to asked"
 
-for f in glob.glob(f"{S}/selftest-*-{os.getpid()}.*"): os.remove(f)
 print("forge ok (settle fallback, settle live Jev, reply vs new request)")
