@@ -141,6 +141,15 @@ for cmd in ("R=/repo/app; echo x > $R/a.py", "git checkout -- app/a.py", "git ch
     assert w(cmd), f"gated: {cmd!r}"
 assert not w("cd /repo && echo x >> SESSION_HANDOVER.md"), "the handover at the repo root is a note, not the result"
 
+# a denial says what was caught and how to continue, in the user's language (users kept asking "한글로 보고해")
+call, state = session("words")
+call("prompt", jev=CLOSE_NEW, prompt="결제 화면 새로 짜 줘")
+out = json.loads(call("pre", tool_name="Write", tool_input={"file_path": f"{REPO}/app/pay.jsx"}))["hookSpecificOutput"]["permissionDecisionReason"]
+assert out.startswith("[lean-forge 정하기]") and f"걸린 것: {REPO}/app/pay.jsx" in out and "계속하려면:" in out, out
+call("stop"); call("prompt", jev=CLOSE_NEW, prompt="build a new payment screen")
+out = json.loads(call("pre", tool_name="Write", tool_input={"file_path": f"{REPO}/app/pay.jsx"}))["hookSpecificOutput"]["permissionDecisionReason"]
+assert out.startswith("lean-forge SETTLE") and "Caught:" in out, out
+
 # the agent's last message: the block that asks, not the closing line after a Stop-hook nudge
 lam = ns["last_agent_message"]
 t = transcript(("user", "이전 요청"), ("agent", "A안과 B안 중 어느 쪽으로 할까요? 정해 주세요."), ("agent", "검증 대기 1건이 남았습니다."))

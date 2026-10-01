@@ -44,7 +44,7 @@ From 48 runs of Opus 5.5 on the benchmark below, with and without lean-forge, an
 | Observed | Rule |
 |---|---|
 | Finds real causes well, but starts building quickly and **guesses output contracts** (CSV headers, keys, ID formats). Without a harness it wrote files before the first answer in 20 of 20 runs that asked anything; runs whose questions missed the contract fully passed 0 of 7 times | Look first where the rules already live, then settle every user-visible contract before writing |
-| Reads a broad "proceed" as permission to **commit, branch and merge** (7 of 24 runs without a harness) | Git operations only when the user names them |
+| Reads a broad "proceed" as permission to **commit, branch and merge** (7 of 24 runs without a harness) | On a feature branch, commits and pushes belong to the approved plan; merging into main, deploys, releases and force pushes only when the user names them |
 | Twice reported "tests pass" without re-running them after its last change | Claim a pass only for a run seen after the last change |
 | Replied in English to about 15–20% of Korean prompts | Reply in the user's language |
 | Anthropic: mark pasted text so instructions inside it are not taken as the user's | Anthropic's `<pasted_content>` note, verbatim |
@@ -85,8 +85,8 @@ after 137 of 2,388 messages and blocked 30 tool calls; v0.2.4 closes after 94 an
   message from another session or a background-task notice leaves the gate as it was.
 - **Drafts and notes stay writable** while the gate is closed: temp folders and the scratchpad, `~/.claude/plans/`,
   Claude Code memory folders and `SESSION_HANDOVER.md` at the repository root. "Show me a draft first" opens.
-- **git:** commits, merges, rebases and new branches are no longer SETTLE's business (protocol rule 2 already keeps
-  them to when the user names them); `restore`, `checkout -- <path>`, `stash`, `reset`, `apply` and `am` stay gated.
+- **git:** commits, merges, rebases and new branches are no longer SETTLE's business (protocol rule 2 governs
+  them); `restore`, `checkout -- <path>`, `stash`, `reset`, `apply` and `am` stay gated.
 - **Robust state.** The state file is replaced atomically; the decision is saved before Jev is asked, so a hook killed
   on a busy machine leaves a sane state; if Jev is unavailable, open work stays open.
 - **Measured, not guessed.** Every hook event appends one line to `~/.cache/lean-forge-55/log.jsonl` (no message
@@ -159,7 +159,7 @@ touch ~/.cache/lean-forge-55/<session id>.off
 The session id is the transcript's file name under `~/.claude/projects/`. The change applies from the next tool call,
 without restarting the session.
 
-Self-tests: `python3 hooks/test_settle.py`, `python3 hooks/test_shell.py`, `python3 hooks/test_bundle.py` (offline) and
+Self-tests: `python3 hooks/test_settle.py`, `python3 hooks/test_castra_stop.py`, `python3 hooks/test_shell.py`, `python3 hooks/test_bundle.py` (offline) and
 `python3 hooks/test_forge.py` (live Jev). `scripts/release.sh` runs them all before tagging.
 
 ## Limits

@@ -130,12 +130,14 @@ def _head_command(segment: str) -> str:
 
 
 ENV_READERS = {"cat", "less", "more", "head", "tail", "bat", "open", "grep", "egrep", "fgrep", "rg",
+               "sed", "awk", "cut", "sort", "uniq", "strings", "xxd", "od", "hexdump", "base64", "nl", "tac",
                "get-content", "gc", "type"}   # 뒤의 셋은 PowerShell·cmd
 PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg"}   # 첫 번째 위치 인자는 파일이 아니라 검색어
 ENV_FILE = re.compile(r"(^|\.)env(\.[^/]*)?$")      # .env, .env.local, prod.env — process.environment 는 아님
+ENV_TEMPLATE = re.compile(r"\.(example|sample|template|dist)$")   # 값이 없는 견본 파일
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
 # 스크립트 안에서 .env 를 여는 호출 — here-document 본문까지 본다(본문의 open()은 실제로 실행된다)
-OPEN_ENV = re.compile(r"\bopen\(\s*[rbfu]?(['\"])(?:[^'\"]*/)?[^'\"/]*\.env(?:\.[^'\"/]*)?\1")
+OPEN_ENV = re.compile(r"\b(?:open|readFileSync|readFile)\(\s*[rbfu]?(['\"])(?:[^'\"]*/)?[^'\"/]*\.env(?:\.[^'\"/]*)?\1")
 
 
 SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
@@ -179,15 +181,39 @@ def _reader_calls(cmd: str):
         args = [w for w in words[1:] if not w.startswith("-")]
         if head in PATTERN_FIRST and not any(w in ("-e", "-f") or w.startswith("--regexp") for w in words[1:]):
             args = args[1:]
-        yield head, args
+        yield head, args, words
+
+
+NAME_GREP = re.compile(r"\^?\[[A-Za-z0-9_-]+\][+*]=?")   # grep -o '^[A-Z_]+=' — 이름만 나온다
+
+
+def _names_only(head, words):
+    """값이 출력되지 않는다는 것을 명령 모양만으로 알 수 있는가: 개수·존재 여부·파일 이름, 또는 변수 이름만.
+    `=`가 없는 줄(여러 줄짜리 값의 이어지는 줄)도 그대로 내보내는 형태는 넣지 않는다: sed 's/=.*//', -s 없는 cut.
+    ponytail: 이 세 형태만 안다. 그 밖은 값을 읽는 것으로 본다."""
+    flags = [w for w in words[1:] if w.startswith("-")]
+    short = "".join(w[1:] for w in flags if not w.startswith("--"))
+    if head in ("grep", "egrep", "fgrep", "rg") and (set(short) & set("cqlL") or
+                                                     set(flags) & {"--count", "--quiet", "--files-with-matches"}):
+        return True
+    rest = [w for w in words[1:] if not w.startswith("-")]
+    if head in ("grep", "egrep") and "o" in short and rest and NAME_GREP.fullmatch(rest[0]):
+        return True
+    return (head == "cut" and "s" in short and ("-d=" in words or "-d" in words and "=" in words)
+            and ("-f1" in words or "-f" in words and "1" in words))
+
+
+def _env_file(a):
+    name = a.rstrip("/").rsplit("/", 1)[-1]
+    return ".env" in a and bool(ENV_FILE.search(name)) and not ENV_TEMPLATE.search(name)
 
 
 def _reads_env(cmd: str) -> bool:
-    """읽기·출력 명령이 .env 계열 파일을 인자로 받는가."""
+    """읽기·출력 명령이 .env 계열 파일을 인자로 받고, 그 출력에 값이 나올 수 있는가."""
     if OPEN_ENV.search(cmd):
         return True
-    return any(head in ENV_READERS and any(ENV_FILE.search(a.rstrip("/").rsplit("/", 1)[-1]) and ".env" in a for a in args)
-               for head, args in _reader_calls(cmd))
+    return any(head in ENV_READERS and any(_env_file(a) for a in args) and not _names_only(head, words)
+               for head, args, words in _reader_calls(cmd))
 
 
 KEY_READERS = {"cat", "less", "more", "head", "tail", "bat"}
@@ -197,7 +223,7 @@ KEY_FILE = re.compile(r"^id_(rsa|dsa|ecdsa|ed25519)$|\.pem$|^credentials(\.json)
 def _reads_keyfile(cmd: str) -> bool:
     """출력 명령이 비밀키·자격증명 파일을 인자로 받는가."""
     return any(head in KEY_READERS and any(KEY_FILE.search(a.rstrip("/").rsplit("/", 1)[-1]) for a in args)
-               for head, args in _reader_calls(cmd))
+               for head, args, _ in _reader_calls(cmd))
 
 
 # 명령으로 실행되는 본문을 받는 실행기. 여기로 넘어가는 here-document·파이프 입력은 데이터가 아니다.
@@ -272,7 +298,8 @@ def classify(cmd: str) -> dict:
     verdict, reasons = "not_required", []
     if _reads_env(cmd):
         verdict = "hand_off"
-        reasons.append({"grade": "hand_off", "reason": "security.md: .env 파일은 읽어서 출력하지 않는다",
+        reasons.append({"grade": "hand_off", "reason": "security.md: .env 파일은 읽어서 출력하지 않는다. 변수 이름만 필요하면 "
+                        "castra_runtime.py env-names <파일>을 쓴다. 이 부분만 빼고 나머지 명령은 따로 실행해도 된다",
                         "matched": "_reads_env"})
     if _reads_keyfile(cmd):
         verdict = "hand_off"

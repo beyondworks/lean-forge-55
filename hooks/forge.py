@@ -245,11 +245,14 @@ def base_at(cmd, pos, root):
 
 
 def writes_files(cmd, root):
+    """The part of the command that writes into the project ('' when none): shown to the agent when it is denied."""
     at = lambda m, g: inside(subst(m.group(g), cmd, m.start()), root, base_at(cmd, m.start(), root))
-    if any(TARGET.search(m.group(2)) and at(m, 2) for m in REDIRECT.finditer(cmd)):
-        return True
-    if any(not m.group(1) and at(m, 3) for m in OPEN.finditer(cmd)) or any(at(m, 2) for m in FS_WRITE.finditer(cmd)):
-        return True
+    for m in REDIRECT.finditer(cmd):
+        if TARGET.search(m.group(2)) and at(m, 2):
+            return m.group(0).strip()
+    for m in list(OPEN.finditer(cmd)) + list(FS_WRITE.finditer(cmd)):
+        if (m.re is OPEN and not m.group(1) and at(m, 3)) or (m.re is FS_WRITE and at(m, 2)):
+            return m.group(0)[:120]
     for m in WORDS.finditer(cmd):
         word, base = m.group(1), base_at(cmd, m.start(), root)
         args = [subst(a, cmd, m.start()) for a in m.group(2).split() if not a.startswith("-")]
@@ -258,8 +261,9 @@ def writes_files(cmd, root):
         if word == "cp":
             args = args[-1:]  # only the destination changes
         if any(inside(a, root, base) for a in args):
-            return True
-    return bool(GIT.search(cmd))
+            return m.group(0).strip()[:120]
+    g = GIT.search(cmd)
+    return g.group(0) if g else ""
 
 
 def current_model(inp, st):
@@ -309,6 +313,20 @@ def shell_rules(inp, st):
 
 def context(event, text):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}))
+
+
+HANGUL = re.compile(r"[가-힣]")
+
+
+def denial(st, caught, en):
+    """Denial text: in Korean when the user writes Korean, with what was caught and the one way to continue."""
+    if st.get("lang") != "ko":
+        return f"{en} Caught: {caught}"
+    return ("[lean-forge 정하기] 결과를 바꾸는 결정이 아직 정해지지 않아 쓰기를 막았습니다.\n"
+            f"걸린 것: {caught}\n"
+            "계속하려면: 사용자에게 질문(추천안과 경계 예시)을 보내고 턴을 끝내세요. 읽기·검색·테스트 실행과 scratchpad 초안 "
+            "쓰기는 열려 있습니다. 사용자가 답하면 열립니다.\n"
+            "사용자에게는 사용자 언어로 짧게 알리세요. 특정 단어를 다시 보내 달라고 하지 마세요.")
 
 
 def deny(reason):
@@ -391,7 +409,8 @@ def main():
         if st.get("state") == "open" and mid_turn(inp.get("transcript_path", "")):
             return done(rule="queued-while-working")  # the agent is mid-turn on settled work; this joins it
         prev, prev_at = st.get("state"), st.get("prompt_at")
-        base = {"prompt_at": now, "model": st.get("model"), "bash_first": st.get("bash_first")}
+        base = {"prompt_at": now, "model": st.get("model"), "bash_first": st.get("bash_first"),
+                "lang": "ko" if HANGUL.search(prompt) else "en"}
         if off or kind.lstrip("/") in config().get("open_commands", []):
             st = dict(base, state="open", jev=None, hatch=False)
             save(sp, st)
@@ -420,11 +439,13 @@ def main():
             save(sp, st)
             return done()
         cmd = (inp.get("tool_input") or {}).get("command", "")
-        if st.get("state") != "open" and writes_files(cmd, snap.root_of(inp.get("cwd", "."))):
+        caught = st.get("state") != "open" and writes_files(cmd, snap.root_of(inp.get("cwd", ".")))
+        if caught:
             save(sp, st)
-            deny("lean-forge-55 SETTLE: file writes are closed, shell writes included, until the outcome-changing "
-                 "decisions are settled. Reading, searching, running tests and writing drafts to the scratchpad stay "
-                 "open. Send the user your questions (recommendation + a boundary example each) and end your turn.")
+            deny(denial(st, caught, "lean-forge-55 SETTLE: file writes are closed, shell writes included, until the "
+                        "outcome-changing decisions are settled. Reading, searching, running tests and writing drafts to "
+                        "the scratchpad stay open. Send the user your questions (recommendation + a boundary example "
+                        "each) and end your turn."))
             return done(deny="settle-shell")
         notice = snap.before(sid, inp.get("tool_use_id", "x"), inp.get("cwd", "."), st.get("prompt_at", 0))
         if notice:
@@ -448,7 +469,7 @@ def main():
             cs = runtime.session_id(sid)
             for f in changed:
                 if Path(f).suffix.lower() in CODE_SUFFIXES:
-                    runtime.record_edit(inp.get("cwd", "."), cs, Path(f))
+                    runtime.record_edit(inp.get("cwd", "."), cs, Path(f), inp.get("agent_id"))
         except Exception:
             pass
         names = ", ".join(os.path.relpath(f, inp.get("cwd", ".")) for f in (changed + removed)[:8])
@@ -466,9 +487,9 @@ def main():
         if path and scratch(path, snap.root_of(inp.get("cwd", "."))):
             return done(rule="scratch")
         if not st.get("hatch", True):
-            deny("lean-forge SETTLE: an independent check judged that this request leaves outcome-changing "
-                 "decisions open. Send the user your questions / confirm-by-example message and end your turn; "
-                 "edits open when they answer. Drafts in the scratchpad stay writable.")
+            deny(denial(st, path, "lean-forge SETTLE: an independent check judged that this request leaves "
+                        "outcome-changing decisions open. Send the user your questions / confirm-by-example message and "
+                        "end your turn; edits open when they answer. Drafts in the scratchpad stay writable."))
             return done(deny="settle-jev")
         try:
             if os.path.getmtime(mech) >= st["prompt_at"] and open(mech).read().strip():

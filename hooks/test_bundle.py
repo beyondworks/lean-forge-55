@@ -27,8 +27,11 @@ def pre_bash(cmd, mode="default"):
 assert '"deny"' in pre_bash("git push --force origin main"), "force push handed off"
 assert '"deny"' in pre_bash("cat .env.local"), ".env output handed off"
 # reading a .env file stays handed off, however it is written (security.md: never print .env values)
-for cmd in ["tail -3 app/.env", "cd app && head .env.production", 'grep -oE "^[A-Z_]+=" .env.local | grep -iE "db|pg"',
+for cmd in ["tail -3 app/.env", "cd app && head .env.production", 'grep -oE "^[A-Z_]+=.*" .env.local',
             "W=/w; less $W/.env.local", "bat ./config/prod.env", "rg KEY .env",
+            # 0.2.5: more readers, and name-only forms that still print lines without '=' (a multi-line key)
+            "sed -n 1p .env", "awk -F= '{print $2}' .env", "cut -d= -f2 .env", "cut -d= -f1 .env", "sed 's/=.*//' .env",
+            "base64 .env.local", "node -e \"console.log(require('fs').readFileSync('.env','utf8'))\"",
             "python3 -c \"print(open('.env.local').read())\"",
             "python3 - <<'PY'\nprint(open('app/.env').read())\nPY",
             "bash <<'SH'\ncd app\ncat .env.local\nSH", "Get-Content -Path .env", "type .env.local",
@@ -41,7 +44,10 @@ for cmd in ['git grep -n "process.env.LS_\\|process.env.LEMON" origin/main -- sr
             "python3 - <<'PY'\np='SESSION_HANDOVER.md'; s=open(p).read()\nopen(p,'w').write(s+'- .env.local은 커밋하지 않는다')\nPY",
             "grep -rn 'process.env' src | head", "ls -la $W/.env.local 2>&1 | awk '{print $1}'",
             "cat > memo.md <<'EOF'\n---\ntype: project\n---\n.env.local은 커밋하지 않는다\nEOF",
-            "PW=/x timeout 120 node --input-type=module -e \"const m = await import(process.env.PW);\""]:
+            "PW=/x timeout 120 node --input-type=module -e \"const m = await import(process.env.PW);\"",
+            # 0.2.5: output that cannot carry a value: counts, yes/no, names (22 real denials were like these)
+            "grep -c DB_ .env.local", "grep -q STRIPE .env && echo yes", 'grep -oE "^[A-Z_]+=" .env.local | grep -iE "db|pg"',
+            "cut -s -d= -f1 .env.local", "cat .env.example", "head app/.env.template"]:
     assert '"deny"' not in pre_bash(cmd), f"naming .env without reading it passes: {cmd}"
 # the other hand-off rules: a command that really does it is still handed off
 for cmd in ["git push -f origin x", "cd w && git push -q --force-with-lease origin b 2>&1 | grep -v remote",

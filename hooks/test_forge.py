@@ -44,7 +44,9 @@ call("stop")
 call("prompt", prompt="송장을 PDF로 뽑는 기능 만들어 줘. 거래처에 메일로 보낼 거야.")
 st = json.load(open(sp)); time.sleep(0.01); open(mech, "w").write("I say it is mechanical\n")
 out = call("pre", tool_name="Write")
-assert denied(out) and "independent check" in out, f"Jev: open request stays closed, hatch refused (p={st['jev']})"
+reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"] if denied(out) else ""
+assert reason.startswith("[lean-forge 정하기]") and ".mechanical" not in reason, \
+    f"Jev: open request stays closed, hatch refused, said in the user's language (p={st['jev']})"
 call("stop")
 assert json.load(open(sp))["state"] == "asked", "a refused marker is not a used hatch: the turn still counts as asked"
 

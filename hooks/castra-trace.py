@@ -45,7 +45,7 @@ def main():
             if isinstance(raw, str) and raw:
                 path = Path(runtime.canonical(cwd, raw))
                 if is_tracked(path):
-                    runtime.record_edit(cwd, session, path)
+                    runtime.record_edit(cwd, session, path, payload.get('agent_id'))
             return
         if tool != 'Bash':
             return

@@ -16,7 +16,7 @@ python3 -c "import sys; v=lambda s: tuple(map(int, s.lstrip('v').split('.'))); s
   || fail "$T is not newer than $LAST"
 grep -q "^## $V" CHANGELOG.md || fail "CHANGELOG.md has no '## $V' section"
 
-for t in hooks/test_settle.py hooks/test_shell.py hooks/test_bundle.py hooks/test_forge.py; do
+for t in hooks/test_settle.py hooks/test_castra_stop.py hooks/test_shell.py hooks/test_bundle.py hooks/test_forge.py; do
   python3 "$t" || fail "$t failed"
 done
 if [ -n "${LF55_REPLAY:-}" ]; then sh -c "$LF55_REPLAY" || fail "replay failed"; fi

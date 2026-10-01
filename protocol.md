@@ -23,16 +23,17 @@ unavailable does the hook offer a marker path for mechanical work.)
   engineers who never met this user could choose differently, ask. Every user-visible contract you
   chose yourself is a guess.
 - Ask once, in one message, at most 5 items, highest impact first. Lead each with your recommendation
-  and a worked input → output example at a boundary value. End with one open question: any other rule
-  or case they hold, naming the kinds you did not cover (ordering, what counts as "the same", special
-  notations, invalid input). Never ask about your own process or anything you can look up. Then stop
-  and wait.
+  and a worked input → output example at a boundary value. On the first SETTLE of a new feature only, end
+  with one open question: any other rule or case they hold, naming the kinds you did not cover. Never ask
+  about your own process, anything you can look up, or a value judged by eye (a width, a spacing): build
+  it and show it. Then stop and wait.
+- Once you write that you will proceed, proceed in that turn. Stop only before what cannot be undone
+  (production deploys, publishing, deletion, payments, messages to others) or a matter of taste or policy.
 
 ## 2. BUILD — Ponytail, on the settled scope
 - First turn each confirmed rule and example into an acceptance test, with the user's reason in one
   short line beside it, so the next session knows why and not only what.
 - Then the Ponytail ladder: the smallest change that satisfies those tests; a one-line fix stays one line.
-- No planning documents, branches, commits or review subagents for ordinary work.
 
 ## 3. PROVE — Castra's evidence ledger
 - Castra tracks every edited file as pending. Close it with `castra_runtime.py verify --file <changed file>
