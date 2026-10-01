@@ -36,7 +36,8 @@ python3 - "$T" <<'PY'
 import json, os, shutil, subprocess, sys, filecmp
 tag = sys.argv[1]
 cache = os.path.expanduser("~/.claude/plugins/cache/lean-forge-55/lean-forge-55")
-files = subprocess.run(["git", "ls-files", "hooks", "scripts", "protocol.md", "protocol-55.md", "skills"],
+files = subprocess.run(["git", "ls-files", "hooks", "scripts", "protocol.md", "protocol-55.md", "skills",
+                        ".claude-plugin/plugin.json"],  # plugin.json too: the log names the release from it
                        capture_output=True, text=True, check=True).stdout.split()
 dirs = [os.path.join(cache, d) for d in os.listdir(cache)]
 for d in dirs:
