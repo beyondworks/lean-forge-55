@@ -166,4 +166,5 @@ assert "정해 주셔야" in lam(t), "a real case: the question was in the messa
 lines = [json.loads(l) for l in open(f"{S}/log.jsonl")]
 assert any(l.get("rule") == "reply-to-question" for l in lines) and any(l.get("deny") == "settle-jev" for l in lines)
 assert "회원 등급제" not in open(f"{S}/log.jsonl").read(), "no prompt text in the log"
+assert lines[-1]["v"] == json.load(open(os.path.join(HERE, "..", ".claude-plugin", "plugin.json")))["version"], "log names the release"
 print("settle ok (reply opens, new task asks, AskUserQuestion, queued, peer/task, Jev down, empty state, scratch, commands, shell, last message, log)")

@@ -22,7 +22,10 @@ from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "scripts")]
 import lf55_snapshot as snap
 
-VERSION = "0.2.4"
+try:  # the log names the release that made each decision
+    VERSION = json.load(open(Path(__file__).resolve().parents[1] / ".claude-plugin" / "plugin.json"))["version"]
+except Exception:
+    VERSION = "?"
 STATE_DIR = os.environ.get("LF55_STATE_DIR") or os.path.expanduser("~/.cache/lean-forge-55")
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 NEEDS_Q = {"needs_decision": {"type": "noul", "instructions":

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6 — 2026-10-01
+
+- `log.jsonl` names the installed release (read from plugin.json); 0.2.5 still wrote 0.2.4.
+
 ## 0.2.5 — 2026-10-01
 
 - Castra Stop blocks only for code this turn's own agent changed and that still exists. Files from earlier turns and
