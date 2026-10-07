@@ -252,12 +252,14 @@ def base_at(cmd, pos, root):
 
 
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
-SHELL_FED = re.compile(r"\b(?:ba|z|da)?sh\b[^<|;&]*<<")
+QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+DATA_SINK = re.compile(r"(?:^|[;&|(]\s*)(?:cat|tee)\b[^;&|]*<<")  # the body only goes into a file
 
 
 def commands_only(cmd):
-    """The command without here-document bodies that are data (cat > f <<EOF ...). A body fed to a shell is commands
-    and stays. Code fed to python/node is read separately for open()/writeFile() calls."""
+    """The command without here-document bodies that cat/tee write out as data (cat > f.html <<'EOF' ...). Any other
+    body (python, node, perl, a shell) is code and stays, and a "<<" inside quotes is not a here-document.
+    ponytail: line-based; a body opened on a line that also holds quoted text is judged on the unquoted part."""
     out, end = [], None
     for line in cmd.split("\n"):
         if end is not None:
@@ -265,8 +267,9 @@ def commands_only(cmd):
                 end = None
             continue
         out.append(line)
-        m = HEREDOC.search(line)
-        if m and not SHELL_FED.search(line):
+        spans = [q.span() for q in QUOTED.finditer(line)]
+        m = next((h for h in HEREDOC.finditer(line) if not any(a <= h.start() < b for a, b in spans)), None)
+        if m and DATA_SINK.search(QUOTED.sub("''", line[:m.end()])):  # quoted text cannot open a here-document
             end = m.group(2)
     return "\n".join(out)
 

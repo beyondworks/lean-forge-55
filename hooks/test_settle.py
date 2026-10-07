@@ -148,6 +148,12 @@ assert not w("cat > /tmp/x.html <<'EOF'\n<a> </head> > app/y.py\nEOF"), "redirec
 assert w("cat > app/x.py <<'EOF'\nprint(1 > 0)\nEOF"), "the command line writes app/x.py"
 assert w("python3 - <<'EOF'\nopen('app/x.py','w').write('')\nEOF"), "code fed to python is still read"
 assert w("bash <<'SH'\necho x > app/y.py\nSH"), "a body fed to a shell is commands"
+# only a body that cat/tee writes out is data; a quoted "<<X" is no heredoc, and bodies fed to any interpreter are
+# read (security review of 0.2.10: these went through). ponytail: a command glued to a quote, as in perl
+# system('rm x'), was never matched by the patterns (0.2.9 neither); the tree diff still records the change after it ran
+assert w("echo '<<X'\necho evil > app/a.py\nX"), "a quoted marker does not hide the next lines"
+assert w("python3 - <<'EOF'\nimport os; os.system('echo x > app/b.py')\nEOF"), "python body is code"
+assert not w("cat <<'EOF' > /tmp/z.html\n<p> </head>\nEOF"), "cat with the redirect after the marker is still data"
 
 # a denial says what was caught and how to continue, in the user's language (users kept asking "한글로 보고해")
 call, state = session("words")

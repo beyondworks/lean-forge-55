@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.11 — 2026-10-07
+
+- Shell gate (security review of 0.2.10): only a here-document body that `cat`/`tee` writes out is treated as data,
+  and a `<<` inside quotes no longer opens one. 0.2.10 let a quoted `'<<X'` hide the writes after it and skipped
+  bodies fed to python. Both are caught again; the HTML wireframe case from 0.2.10 still passes.
+
 ## 0.2.10 — 2026-10-07
 
 Fewer questions. Since 0.2.4 the gate closed after 31 of 535 messages, yet 140 of the 431 open turns still ended with
