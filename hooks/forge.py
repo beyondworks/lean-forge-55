@@ -251,38 +251,19 @@ def base_at(cmd, pos, root):
     return base
 
 
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
-QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
-DATA_SINK = re.compile(r"(?:^|[;&|(]\s*)(?:cat|tee)\b[^;&|]*<<")  # the body only goes into a file
-
-
-def commands_only(cmd):
-    """The command without here-document bodies that cat/tee write out as data (cat > f.html <<'EOF' ...). Any other
-    body (python, node, perl, a shell) is code and stays, and a "<<" inside quotes is not a here-document.
-    ponytail: line-based; a body opened on a line that also holds quoted text is judged on the unquoted part."""
-    out, end = [], None
-    for line in cmd.split("\n"):
-        if end is not None:
-            if line.strip() == end:
-                end = None
-            continue
-        out.append(line)
-        spans = [q.span() for q in QUOTED.finditer(line)]
-        m = next((h for h in HEREDOC.finditer(line) if not any(a <= h.start() < b for a, b in spans)), None)
-        if m and DATA_SINK.search(QUOTED.sub("''", line[:m.end()])):  # quoted text cannot open a here-document
-            end = m.group(2)
-    return "\n".join(out)
-
-
 def writes_files(cmd, root):
-    """The part of the command that writes into the project ('' when none): shown to the agent when it is denied."""
-    full, cmd = cmd, commands_only(cmd)  # redirects, file commands and git are read on the command lines only
-    at = lambda m, g, text=cmd: inside(subst(m.group(g), text, m.start()), root, base_at(text, m.start(), root))
+    """The part of the command that writes into the project ('' when none): shown to the agent when it is denied.
+    The whole text is read, here-document bodies included (a body may be run: piped to sh, eval'd, fed to python)."""
+    at = lambda m, g, path=None: inside(subst(path if path is not None else m.group(g), cmd, m.start()), root,
+                                        base_at(cmd, m.start(), root))
     for m in REDIRECT.finditer(cmd):
-        if TARGET.search(m.group(2)) and at(m, 2):
+        # the shell ends a redirect target at < or > (they start the next redirect), so HTML such as "> </head>"
+        # has no target and ">app/a<b.py" writes app/a, the same as bash reads it
+        target = re.split(r"[<>]", m.group(2))[0]
+        if target and TARGET.search(target) and at(m, 2, target):
             return m.group(0).strip()
-    for m in list(OPEN.finditer(full)) + list(FS_WRITE.finditer(full)):
-        if (m.re is OPEN and not m.group(1) and at(m, 3, full)) or (m.re is FS_WRITE and at(m, 2, full)):
+    for m in list(OPEN.finditer(cmd)) + list(FS_WRITE.finditer(cmd)):
+        if (m.re is OPEN and not m.group(1) and at(m, 3)) or (m.re is FS_WRITE and at(m, 2)):
             return m.group(0)[:120]
     for m in WORDS.finditer(cmd):
         word, base = m.group(1), base_at(cmd, m.start(), root)

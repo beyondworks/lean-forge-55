@@ -144,7 +144,6 @@ assert not w("cd /repo && echo x >> SESSION_HANDOVER.md"), "the handover at the 
 # denied as "> </head>"); code fed to an interpreter is still read, and the command line's own redirect still counts
 D_HTML = "D=\"$HOME/Desktop/client\"\ncat > \"$D/wireframe/index.html\" <<'EOF'\n<html>\n<head><title>x</title>\n</head>\n<p>a > b</p>\nEOF"
 assert not w(D_HTML), "HTML body in a heredoc is not a write"
-assert not w("cat > /tmp/x.html <<'EOF'\n<a> </head> > app/y.py\nEOF"), "redirect-looking text inside data"
 assert w("cat > app/x.py <<'EOF'\nprint(1 > 0)\nEOF"), "the command line writes app/x.py"
 assert w("python3 - <<'EOF'\nopen('app/x.py','w').write('')\nEOF"), "code fed to python is still read"
 assert w("bash <<'SH'\necho x > app/y.py\nSH"), "a body fed to a shell is commands"
@@ -154,6 +153,12 @@ assert w("bash <<'SH'\necho x > app/y.py\nSH"), "a body fed to a shell is comman
 assert w("echo '<<X'\necho evil > app/a.py\nX"), "a quoted marker does not hide the next lines"
 assert w("python3 - <<'EOF'\nimport os; os.system('echo x > app/b.py')\nEOF"), "python body is code"
 assert not w("cat <<'EOF' > /tmp/z.html\n<p> </head>\nEOF"), "cat with the redirect after the marker is still data"
+# second review of 0.2.11: any here-document parsing differs from the shell somewhere, so bodies are read in full and
+# only redirect targets are cut where bash cuts them
+for c in ("cat <<'EOF' | sh\necho evil > app/a.py\nEOF", "eval \"$(cat <<'EOF'\necho evil > app/b.py\nEOF\n)\"",
+          "echo \"; cat <<X\n\"; echo evil > app/c.py\nX"):
+    assert w(c), f"a body that runs is read: {c!r}"
+assert w("echo x >app/d<in.txt") == ">app/d<in.txt", "bash writes app/d here"
 
 # a denial says what was caught and how to continue, in the user's language (users kept asking "한글로 보고해")
 call, state = session("words")

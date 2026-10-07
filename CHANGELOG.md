@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.12 — 2026-10-07
+
+- Shell gate (second security review): here-document parsing is gone; any line-based parser differs from the shell
+  somewhere (`cat <<EOF | sh`, `eval "$(cat <<EOF`, a quote spanning lines all hid writes in 0.2.11). Bodies are read
+  in full again, as in 0.2.9. The 0.2.10 false positive is fixed where it came from: a redirect target ends at `<` or
+  `>`, as bash reads it, so HTML like `> </head>` has no target and `>app/a<b` still writes app/a.
+
 ## 0.2.11 — 2026-10-07
 
 - Shell gate (security review of 0.2.10): only a here-document body that `cat`/`tee` writes out is treated as data,
