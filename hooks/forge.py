@@ -190,7 +190,11 @@ def last_agent_message(transcript_path, prompt=""):
 # or a git operation that changes the tree. Writes outside the project (temp files, caches, the user's own notes) and
 # targets that cannot be resolved from the text are not gated. ponytail: string heuristic for the gate only; the
 # pre/post tree diff is what actually records changes inside the project.
-REDIRECT = re.compile(r"(?<![-=<>&0-9])>{1,2}\s*(?!&)(['\"]?)([^\s'\";|&)]+)")
+# every operator that sends output to a file: >, >>, >|, N>, N>>, &>, &>>, >&file (not a descriptor copy like 2>&1).
+# ponytail: read as bash would read a command line, here-document bodies included. Tag text in an HTML body such as
+# "<b>10/07" then reads as a write when the gate is closed; that is accepted, because telling data from commands
+# needs a full shell parser (three review rounds found differentials), and document requests keep the gate open.
+REDIRECT = re.compile(r"(?:(?<![-=<>&])\d*>>?\|?|&>>?|(?<![-=<>&])\d*>&(?![\d-]))\s*(['\"]?)([^\s'\";|&)<>]+)")
 TARGET = re.compile(r"(/|[A-Za-z_][\w-]*\.[A-Za-z]{1,8}$)")
 OPEN = re.compile(r"(?:open|Path)\(\s*([fbr]{0,2})(['\"])(.*?)\2\s*(?:,\s*[a-z]*\s*=?\s*['\"][wax]|\)\s*\.(?:write_text|write_bytes|open\(\s*['\"][wax]))")
 FS_WRITE = re.compile(r"(?:writeFileSync|fs\.writeFile)\(\s*(['\"])(.*?)\1")
@@ -257,10 +261,10 @@ def writes_files(cmd, root):
     at = lambda m, g, path=None: inside(subst(path if path is not None else m.group(g), cmd, m.start()), root,
                                         base_at(cmd, m.start(), root))
     for m in REDIRECT.finditer(cmd):
-        # the shell ends a redirect target at < or > (they start the next redirect), so HTML such as "> </head>"
-        # has no target and ">app/a<b.py" writes app/a, the same as bash reads it
-        target = re.split(r"[<>]", m.group(2))[0]
-        if target and TARGET.search(target) and at(m, 2, target):
+        # the target ends at < or > as in bash (they start the next redirect): HTML "> </head>" has no target,
+        # ">app/a<b.py" writes app/a
+        target = m.group(2)
+        if TARGET.search(target) and at(m, 2, target):
             return m.group(0).strip()
     for m in list(OPEN.finditer(cmd)) + list(FS_WRITE.finditer(cmd)):
         if (m.re is OPEN and not m.group(1) and at(m, 3)) or (m.re is FS_WRITE and at(m, 2)):

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.13 — 2026-10-07
+
+- Shell gate (third security review): every bash write operator is read — `N>`, `N>>`, `&>`, `&>>`, `>|`, `>&file` —
+  not only `>`/`>>`; descriptor copies (`2>&1`, `>&2`) and arrows (`=>`, `->`) are not writes. Text is read as bash
+  reads a command line, here-document bodies included, so HTML tag text like `<b>10/07` in a body can read as a write
+  while the gate is closed. Accepted: separating data from commands needs a full shell parser, and since 0.2.10 document
+  requests keep the gate open.
+
 ## 0.2.12 — 2026-10-07
 
 - Shell gate (second security review): here-document parsing is gone; any line-based parser differs from the shell

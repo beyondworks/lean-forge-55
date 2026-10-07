@@ -140,7 +140,7 @@ for cmd in ("R=/repo/app; echo x > $R/a.py", "git checkout -- app/a.py", "git ch
             "git stash", "git reset --hard", "git -C /repo apply p.diff", "cd /repo && echo x > SESSION.md"):
     assert w(cmd), f"gated: {cmd!r}"
 assert not w("cd /repo && echo x >> SESSION_HANDOVER.md"), "the handover at the repo root is a note, not the result"
-# a here-document body is data: HTML's "> </head>" is not a redirect (10-07: a wireframe written outside the project was
+# HTML's "> </head>" has no redirect target (bash ends a target at < or >) (10-07: a wireframe written outside the project was
 # denied as "> </head>"); code fed to an interpreter is still read, and the command line's own redirect still counts
 D_HTML = "D=\"$HOME/Desktop/client\"\ncat > \"$D/wireframe/index.html\" <<'EOF'\n<html>\n<head><title>x</title>\n</head>\n<p>a > b</p>\nEOF"
 assert not w(D_HTML), "HTML body in a heredoc is not a write"
@@ -158,7 +158,13 @@ assert not w("cat <<'EOF' > /tmp/z.html\n<p> </head>\nEOF"), "cat with the redir
 for c in ("cat <<'EOF' | sh\necho evil > app/a.py\nEOF", "eval \"$(cat <<'EOF'\necho evil > app/b.py\nEOF\n)\"",
           "echo \"; cat <<X\n\"; echo evil > app/c.py\nX"):
     assert w(c), f"a body that runs is read: {c!r}"
-assert w("echo x >app/d<in.txt") == ">app/d<in.txt", "bash writes app/d here"
+assert w("echo x >app/d<in.txt"), "bash writes app/d here"
+# every write operator bash has (third review: 2>, &>, >| and >&file were never matched)
+for c in ("echo x 2>app/a.py", "echo x 1>app/a1.py", "echo x &>app/b.py", "echo x &>>app/b2.py", "echo x >|app/c.py",
+          "echo x >&app/d.py", "echo x 2>>app/e.log"):
+    assert w(c), f"write operator: {c!r}"
+for c in ("cmd 2>&1", "cmd >&2", "cmd 2>&-", "cmd 2>/dev/null", "node -e 'x => y.py'", "echo a->b.py"):
+    assert not w(c), f"not a project write: {c!r}"
 
 # a denial says what was caught and how to continue, in the user's language (users kept asking "한글로 보고해")
 call, state = session("words")
