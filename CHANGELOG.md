@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.10 — 2026-10-07
+
+Fewer questions. Since 0.2.4 the gate closed after 31 of 535 messages, yet 140 of the 431 open turns still ended with
+questions: the protocol text, not the gate, was asking.
+- Protocol: while edits are open, settle choices yourself (your recommendation), build, and list the choices made in
+  one or two lines of the report; do not stop to ask or end a finished report with a question. Ask first only after a
+  denied write or before what cannot be undone. Opus 5.5 rule 1 reads the same way: contracts are still settled and
+  named, never hidden.
+- SETTLE: writing a document for the user to review (plan, proposal, report, brief, draft, mockup, wireframe) keeps
+  edits open; open choices go inside the document. A real "write a plan from this meeting" request scored 0.86 → 0.44;
+  the held-out must-ask set stays closed (0/5 opened).
+- Shell gate: here-document bodies that are data are not read as commands. An HTML wireframe written outside the
+  project was denied because "> </head>" in the HTML looked like a redirect. Code fed to python/node/sh is still read.
+
 ## 0.2.9 — 2026-10-01
 
 - Codex support for a measurement week: `LF55_LOG_ONLY=1` makes forge.py decide and log (`would: deny/note`, model)

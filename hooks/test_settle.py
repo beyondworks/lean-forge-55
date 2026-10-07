@@ -140,6 +140,14 @@ for cmd in ("R=/repo/app; echo x > $R/a.py", "git checkout -- app/a.py", "git ch
             "git stash", "git reset --hard", "git -C /repo apply p.diff", "cd /repo && echo x > SESSION.md"):
     assert w(cmd), f"gated: {cmd!r}"
 assert not w("cd /repo && echo x >> SESSION_HANDOVER.md"), "the handover at the repo root is a note, not the result"
+# a here-document body is data: HTML's "> </head>" is not a redirect (10-07: a wireframe written outside the project was
+# denied as "> </head>"); code fed to an interpreter is still read, and the command line's own redirect still counts
+D_HTML = "D=\"$HOME/Desktop/client\"\ncat > \"$D/wireframe/index.html\" <<'EOF'\n<html>\n<head><title>x</title>\n</head>\n<p>a > b</p>\nEOF"
+assert not w(D_HTML), "HTML body in a heredoc is not a write"
+assert not w("cat > /tmp/x.html <<'EOF'\n<a> </head> > app/y.py\nEOF"), "redirect-looking text inside data"
+assert w("cat > app/x.py <<'EOF'\nprint(1 > 0)\nEOF"), "the command line writes app/x.py"
+assert w("python3 - <<'EOF'\nopen('app/x.py','w').write('')\nEOF"), "code fed to python is still read"
+assert w("bash <<'SH'\necho x > app/y.py\nSH"), "a body fed to a shell is commands"
 
 # a denial says what was caught and how to continue, in the user's language (users kept asking "한글로 보고해")
 call, state = session("words")

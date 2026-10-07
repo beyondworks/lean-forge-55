@@ -41,7 +41,9 @@ NEEDS_Q = {"needs_decision": {"type": "noul", "instructions":
     "concretely or the agent already proposed. Also answer no when the user answers the agent's questions or picks "
     "among its options, even if the answer adds constraints; when the user leaves the choices to the agent (for "
     "example 'your call', 'go with your recommendation', '너네가 결정해', '알아서 해', '권장안대로'); when the user asks to "
-    "see a draft, mockup or sample before deciding; and when the message tells the agent to go ahead with settled work "
+    "see a draft, mockup or sample before deciding; when the work is writing a document for the user to review (a "
+    "plan, proposal, report, brief, draft, mockup or wireframe), since the agent writes it with its recommendations "
+    "and lists the open choices inside it; and when the message tells the agent to go ahead with settled work "
     "and also asks questions or floats ideas, since those are answered in words, not built."}}
 NEW_Q = {"new_task": {"type": "noul", "instructions":
     "The agent's last message ended its turn waiting for the user: it asked questions, offered options or asked for "
@@ -249,14 +251,35 @@ def base_at(cmd, pos, root):
     return base
 
 
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
+SHELL_FED = re.compile(r"\b(?:ba|z|da)?sh\b[^<|;&]*<<")
+
+
+def commands_only(cmd):
+    """The command without here-document bodies that are data (cat > f <<EOF ...). A body fed to a shell is commands
+    and stays. Code fed to python/node is read separately for open()/writeFile() calls."""
+    out, end = [], None
+    for line in cmd.split("\n"):
+        if end is not None:
+            if line.strip() == end:
+                end = None
+            continue
+        out.append(line)
+        m = HEREDOC.search(line)
+        if m and not SHELL_FED.search(line):
+            end = m.group(2)
+    return "\n".join(out)
+
+
 def writes_files(cmd, root):
     """The part of the command that writes into the project ('' when none): shown to the agent when it is denied."""
-    at = lambda m, g: inside(subst(m.group(g), cmd, m.start()), root, base_at(cmd, m.start(), root))
+    full, cmd = cmd, commands_only(cmd)  # redirects, file commands and git are read on the command lines only
+    at = lambda m, g, text=cmd: inside(subst(m.group(g), text, m.start()), root, base_at(text, m.start(), root))
     for m in REDIRECT.finditer(cmd):
         if TARGET.search(m.group(2)) and at(m, 2):
             return m.group(0).strip()
-    for m in list(OPEN.finditer(cmd)) + list(FS_WRITE.finditer(cmd)):
-        if (m.re is OPEN and not m.group(1) and at(m, 3)) or (m.re is FS_WRITE and at(m, 2)):
+    for m in list(OPEN.finditer(full)) + list(FS_WRITE.finditer(full)):
+        if (m.re is OPEN and not m.group(1) and at(m, 3, full)) or (m.re is FS_WRITE and at(m, 2, full)):
             return m.group(0)[:120]
     for m in WORDS.finditer(cmd):
         word, base = m.group(1), base_at(cmd, m.start(), root)

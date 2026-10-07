@@ -14,8 +14,9 @@ reads broad approvals as permission for git operations.
 
 1. Look before you build, then settle the output contract. First read where the result's rules already live (the
    code that consumes it, docs, tests, earlier messages). Then list every user-visible contract still open (names,
-   headers and their order, keys, ID and number formats, dates, encoding, sorting, empty cases) and settle each with
-   the user before writing anything. "Assumptions to confirm" after building is too late.
+   headers and their order, keys, ID and number formats, dates, encoding, sorting, empty cases). Settle each from
+   those sources and your recommendation, build, and name each choice you made in the report, never hidden. Ask
+   before writing only when lean-forge has denied a write or the choice cannot be undone.
 2. Commits, pushes and pull requests on a feature branch or worktree are part of an approved plan. Merging into main,
    production deploys, app releases, `branch -D`, `worktree remove --force` and force pushes happen only when the user
    names them; a broad go-ahead ("진행하세요", "proceed") does not name them.
