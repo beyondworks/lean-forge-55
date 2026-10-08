@@ -51,7 +51,7 @@ higher one and move on. The first lazy solution that works is the right one.
 
 ## Output
 
-Code first. Then at most three short lines: what was skipped, when to add it.
+For code work: code first. Then at most three short lines: what was skipped, when to add it.
 No essays, no feature tours, no design notes. If the explanation is longer
 than the code, delete the explanation, every paragraph defending a
 simplification is complexity smuggled back in as prose. Explanation the user
@@ -93,8 +93,9 @@ test, YAGNI applies to tests too.
 
 ## Boundaries
 
-Ponytail governs what you build, not how you talk (pair with Caveman for
-terse prose). "stop ponytail" / "normal mode": revert. Level persists until
+Ponytail governs code. A written deliverable the user asked for (a plan, proposal, spec, copy, script, email, document, a brainstorm) is not code: write it at the length its purpose needs, with the options and ideas it calls for. The ladder, YAGNI and the Output limits do not shorten it; a hypothesis in it is labeled as one, not cut.
+It governs what you build, not how you talk (pair with Caveman for terse
+prose). "stop ponytail" / "normal mode": revert. Level persists until
 changed or session end.
 
 The shortest path to done is the right path.

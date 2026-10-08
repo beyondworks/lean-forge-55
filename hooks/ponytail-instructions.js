@@ -65,7 +65,7 @@ function getFallbackInstructions(mode) {
     'security measures, accessibility basics, the calibration real hardware needs (the platform is never the spec ideal), anything the user explicitly asked to keep. ' +
     'Lazy code without its check is unfinished: non-trivial logic leaves ONE runnable check behind (assert-based demo/self-check or one small test file; no frameworks). Trivial one-liners need no test.\n\n' +
     '## Boundaries\n\n' +
-    'Ponytail governs what you build, not how you talk. "stop ponytail" or "normal mode": revert. Level persists until changed or session end.';
+    'Ponytail governs code. A written deliverable the user asked for (a plan, proposal, spec, copy, script, email, document, a brainstorm) is not code: write it at the length its purpose needs, with the options and ideas it calls for. The ladder, YAGNI and the Output limits do not shorten it; a hypothesis in it is labeled as one, not cut. It governs what you build, not how you talk. "stop ponytail" or "normal mode": revert. Level persists until changed or session end.';
 }
 
 function getPonytailInstructions(mode) {

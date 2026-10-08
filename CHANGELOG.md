@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.14 — 2026-10-08
+
+- Ponytail is scoped to code. A written deliverable the user asked for (plan, proposal, spec, copy, script, email,
+  document, brainstorm) is written at the length its purpose needs, with its options and ideas; the ladder, YAGNI and
+  the "three short lines" output rule no longer shorten it, and a hypothesis in it is labeled rather than cut. The
+  REPORT step's "a few lines" is the report on the work, not a requested document. Plans and copy were coming out
+  short and flat because code rules were applied to prose.
+
 ## 0.2.13 — 2026-10-07
 
 - Shell gate (third security review): every bash write operator is read — `N>`, `N>>`, `&>`, `&>>`, `>|`, `>&file` —

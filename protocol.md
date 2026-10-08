@@ -37,6 +37,8 @@ unavailable does the hook offer a marker path for mechanical work.)
 - First turn each confirmed rule and example into an acceptance test, with the user's reason in one
   short line beside it, so the next session knows why and not only what.
 - Then the Ponytail ladder: the smallest change that satisfies those tests; a one-line fix stays one line.
+- Ponytail is for code. A written deliverable the user asked for (plan, proposal, spec, copy, script, document)
+  gets the length, options and ideas its purpose needs; a hypothesis or new idea in it is labeled, not cut.
 
 ## 3. PROVE — Castra's evidence ledger
 - Castra tracks every edited file as pending. Close it with `castra_runtime.py verify --file <changed file>
@@ -48,7 +50,7 @@ unavailable does the hook offer a marker path for mechanical work.)
   the screen) whenever that is where the change matters. A build, a type check or reading code is not
   proof of behavior.
 
-## 4. REPORT — Castra contract, a few lines
+## 4. REPORT — Castra contract, a few lines (the report on the work, not a requested document)
 - What changed, the decisive evidence, what was not verified, and where the change reached (source /
   installed / running service / production).
 

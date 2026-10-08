@@ -113,6 +113,9 @@ assert '"block"' in hook("castra-openloop.py", dict(stop)), "re-edit invalidates
 out = hook("ponytail-activate.js", {"hook_event_name": "SessionStart", "session_id": SID, "cwd": repo, "source": "startup"},
            runner="node")
 assert "PONYTAIL" in out and "Once the outcome-changing decisions are settled" in out, "ponytail patched rule injected"
+# 0.2.14: written deliverables are not code (plans, copy and scripts were coming out short and flat under the code rules)
+assert "A written deliverable the user asked for" in out, "ponytail scoped to code"
+assert "Ponytail is for code" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "protocol.md")).read(), "protocol scopes ponytail"
 assert "Never stall on an answer you can default." not in out.replace("After SETTLE, never stall", ""), "old rule gone"
 
 
