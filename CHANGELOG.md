@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.17 — 2026-10-10
+
+- SETTLE asks only after a denial (approved 2026-10-09): no denial means edits are open, even for a new feature; a
+  design, UX or implementation choice inside approved work is not taste or policy; once the user says to continue,
+  every reversible choice is settled for the session. This change had lived only in installed copies, so the 0.2.15
+  and 0.2.16 releases overwrote it twice; it is now on main.
+
 ## 0.2.16 — 2026-10-10
 
 - Security review of 0.2.15, both found and fixed the same day:
