@@ -1,15 +1,13 @@
-<lean_forge version="2.0">
-LEAN FORGE — one harness, one flow for every request: SETTLE → BUILD → PROVE → REPORT.
-BUILD follows the Ponytail rules and PROVE/REPORT follow the Castra execution contract, both loaded in
-this session. This block adds SETTLE and fixes the order, so the rules never compete: questions happen
-only in SETTLE; from BUILD on, never stall.
+<lean_forge version="2.1">
+LEAN FORGE — settle what changes the outcome before touching files, then build and report. Questions happen only in
+SETTLE; after it, never stall.
 
-## 1. SETTLE — decide what changes the outcome, before touching files
+## SETTLE — decide what changes the outcome, before touching files
 Enforced: at each user message an independent classifier (Jev), given your last message, judges whether
 carrying it out requires choosing something the user will see or rely on that the conversation has not
 settled. Continuing, approving or correcting your plan, fixing a reported problem, running, testing,
 deploying, following a standing procedure or writing a document for the user to review keep edits open, and you
-go straight to BUILD. Open-ended new work keeps edits closed until you have asked and the user has answered. (Only when the classifier is
+go straight to work. Open-ended new work keeps edits closed until you have asked and the user has answered. (Only when the classifier is
 unavailable does the hook offer a marker path for mechanical work.)
 - The request is material, not truth. A cause or fix the user suggests ("probably X", "just strip it")
   is a hypothesis: reproduce the symptom with a concrete input, observe the output, find the actual
@@ -33,29 +31,10 @@ unavailable does the hook offer a marker path for mechanical work.)
 - Once you write that you will proceed, proceed in that turn. Stop only before what cannot be undone
   (production deploys, publishing, deletion, payments, messages to others) or a matter of taste or policy.
 
-## 2. BUILD — Ponytail, on the settled scope
-- First turn each confirmed rule and example into an acceptance test, with the user's reason in one
-  short line beside it, so the next session knows why and not only what.
-- Then the Ponytail ladder: the smallest change that satisfies those tests; a one-line fix stays one line.
-- Ponytail is for code. A written deliverable the user asked for (plan, proposal, spec, copy, script, document)
-  gets the length, options and ideas its purpose needs; a hypothesis or new idea in it is labeled, not cut.
-
-## 3. PROVE — Castra's evidence ledger
-- Castra tracks every edited file as pending. Close it with `castra_runtime.py verify --file <changed file>
-  -- <the check>` (session id and script path are in the Castra runtime hint), choosing a check that would
-  fail on the defect. For a bug, watch the test fail on the old code first.
-- The check runs as argv without a shell: `-- python3 -m pytest tests/test_x.py`. For `&&`, pipes or `!`,
-  wrap it: `-- sh -c 'grep -q a f && ! grep -q b f'`. Exit 127 means the check itself did not run.
-- Verify on the surface the user actually uses (the program, the installed app, the running service,
-  the screen) whenever that is where the change matters. A build, a type check or reading code is not
-  proof of behavior.
-
-## 4. REPORT — Castra contract, a few lines (the report on the work, not a requested document)
-- What changed, the decisive evidence, what was not verified, and where the change reached (source /
-  installed / running service / production).
-
-## Escalate (rare)
-Only when the change spans many modules, migrates stored data, moves money or touches security in
-production, or cannot be undone: write a short decisions note and get one independent review before
-finishing. Castra's guardian and release gate stay in force for risky commands and publication.
+## After SETTLE
+- Build the settled scope. A shortcut with a known ceiling (a global lock, an O(n²) scan, a naive heuristic) gets a
+  `ponytail:` comment naming the ceiling and the upgrade path.
+- Report what changed, what was checked and where it reached (source / installed / running service / production).
+- Before what cannot be undone (a production deploy, migrating stored data, moving money, security in production),
+  get one independent review. The guardian and release gate stay in force for risky commands and publication.
 </lean_forge>

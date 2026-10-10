@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""lean-forge-55 SETTLE gate (Jev triage). PROVE is Castra's evidence ledger (castra-trace/openloop).
+"""lean-forge-55 SETTLE gate (Jev triage).
 
 When Claude Code steers the session to Bash-first file work (its `bashFirst` mode, seen in the transcript), Claude edits
 files through Bash, which Claude Code's edit hooks and checkpoints never see; this was measured on Opus 5.5, Opus 5 and
 Fable 5.1 alike. In such sessions (or while the transcript does not show yet) the gate also closes shell writes, and every
-Bash call is diffed against the tree so changed files enter the Castra ledger and can be undone. Sessions without
+Bash call is diffed against the tree so changed files can be undone. Sessions without
 bashFirst get plain lean-forge behavior. The Opus 5.5 prompt rules live in protocol-55.md.
 
 A message after a turn that ended closed (the agent asked) opens the gate unless Jev judges it a new, unrelated task;
@@ -59,8 +59,6 @@ NEW_Q = {"new_task": {"type": "noul", "instructions":
 NEEDS_THRESHOLD = 0.8
 PROFILE = os.path.expanduser("~/.config/lean-forge-55/profile.txt")  # optional, private: how this user instructs agents
 CONFIG = os.environ.get("LF55_CONFIG") or os.path.expanduser("~/.config/lean-forge-55/config.json")  # optional, private: {"open_commands": [...], "scratch_paths": [...]}
-CODE_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".rb", ".sh", ".bash", ".zsh", ".java", ".kt", ".swift",
-                 ".c", ".cpp", ".css", ".scss", ".html", ".vue", ".svelte", ".ipynb", ".sql", ".yml", ".yaml"}  # Castra's set + config
 PEER = ("Another Claude session sent a message", "<cross-session-message")
 
 
@@ -418,6 +416,18 @@ def main():
         st["state"] = "open"
     rec = {"sid": sid[:8], "ev": ev, "tool": inp.get("tool_name"), "before": st.get("state"), "model": st.get("model"),
            "keys": sorted(inp)}
+    gate = st.get("state")
+    aid = inp.get("agent_id")
+    if ev in ("pre", "post") and aid and not off:
+        # A subagent keeps the gate it started under. Work delegated while open finishes even after the user's next
+        # message closes the parent's gate (10/10: four Argo subagents on approved PRs were denied mid-task); one
+        # started while closed stays closed, so delegating is no way around SETTLE.
+        seen = st.setdefault("agents", {})
+        if ev == "pre" and aid not in seen:
+            seen[aid] = "open" if gate == "open" else "closed"
+            save(sp, st)
+        gate = seen.get(aid, gate)
+        rec["agent"] = gate
 
     def done(**more):
         if LOG_ONLY:
@@ -434,7 +444,7 @@ def main():
         if st.get("state") == "open" and mid_turn(inp.get("transcript_path", "")):
             return done(rule="queued-while-working")  # the agent is mid-turn on settled work; this joins it
         prev, prev_at = st.get("state"), st.get("prompt_at")
-        base = {"prompt_at": now, "model": st.get("model"), "bash_first": st.get("bash_first"),
+        base = {"prompt_at": now, "model": st.get("model"), "bash_first": st.get("bash_first"), "agents": st.get("agents", {}),
                 "lang": "ko" if HANGUL.search(prompt) else "en"}
         if off or kind.lstrip("/") in config().get("open_commands", []):
             st = dict(base, state="open", jev=None, hatch=False)
@@ -465,7 +475,7 @@ def main():
             save(sp, st)
             return done()
         cmd = (inp.get("tool_input") or {}).get("command", "")
-        caught = st.get("state") != "open" and writes_files(cmd, snap.root_of(inp.get("cwd", ".")))
+        caught = gate != "open" and writes_files(cmd, snap.root_of(inp.get("cwd", ".")))
         if caught:
             save(sp, st)
             deny(denial(st, caught, "lean-forge-55 SETTLE: file writes are closed, shell writes included, until the "
@@ -493,24 +503,16 @@ def main():
         changed, removed = snap.after(sid, inp.get("tool_use_id", "x"))
         if not changed and not removed:
             return
-        try:
-            import castra_runtime as runtime  # vendored Castra: shell-written files enter the ledger as pending
-            cs = runtime.session_id(sid)
-            for f in changed:
-                if Path(f).suffix.lower() in CODE_SUFFIXES:
-                    runtime.record_edit(inp.get("cwd", "."), cs, Path(f), inp.get("agent_id"))
-        except Exception:
-            pass
         names = ", ".join(os.path.relpath(f, inp.get("cwd", ".")) for f in (changed + removed)[:8])
-        if st.get("state") != "open":
+        if gate != "open":
             context("PostToolUse", f"lean-forge-55: this command changed files while writes are closed ({names}). "
                     "Do not continue building: tell the user, and offer to undo (lean-forge-55 undo).")
         else:
-            context("PostToolUse", f"lean-forge-55: shell changes recorded for Castra verification and undo: {names}.")
+            context("PostToolUse", f"lean-forge-55: shell changes recorded for undo: {names}.")
         return done(changed=len(changed) + len(removed))
 
     elif ev == "pre":
-        if inp.get("tool_name") not in EDIT_TOOLS or st.get("state") == "open":
+        if inp.get("tool_name") not in EDIT_TOOLS or gate == "open":
             return
         ti = inp.get("tool_input") or {}
         paths = [ti.get("file_path") or ti.get("notebook_path") or ""]

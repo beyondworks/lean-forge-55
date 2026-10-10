@@ -1,5 +1,5 @@
 # `python3 test_shell.py` — lean-forge-55 additions: shell-write gate (Claude Code bashFirst sessions, or not yet known), tree diff into the
-# Castra ledger, per-turn undo, and background-task notices leaving the gate alone. Offline: Jev is switched off here.
+# per-turn undo, and background-task notices leaving the gate alone. Offline: Jev is switched off here.
 import glob, hashlib, json, os, subprocess, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 H = os.path.join(HERE, "forge.py")
@@ -96,14 +96,13 @@ assert json.load(open(f"{S}/{sid}.json"))["state"] == "asked", "notification lea
 call("prompt", prompt="네, 그렇게 해 주세요")  # the user's answer (Jev off: unknown counts as an answer)
 assert json.load(open(f"{S}/{sid}.json"))["state"] == "open"
 
-# 4. open: the write runs, the diff records it in the Castra ledger, undo restores the tree
+# 4. open: the write runs, the diff names the changed files (no Castra ledger since 0.2.15), undo restores the tree
 out = call("pre", tool_use_id="t3", **bash(WRITE)); assert not denied(out)
 subprocess.run(WRITE + "\nprintf 'A = 9\\n' > app/calc.py", shell=True, cwd=REPO, check=True)
 out = call("post", tool_use_id="t3", **bash(WRITE))
 assert "app/new.py" in out and "app/calc.py" in out, out
 ledger = os.path.expanduser("~/.castra/sessions/" + hashlib.sha256(sid.encode()).hexdigest() + ".json")
-files = json.load(open(ledger))["files"]
-assert any(k.endswith("app/new.py") and v["status"] == "pending" for k, v in files.items()), "shell-written file is pending in Castra"
+assert not os.path.exists(ledger), "0.2.15: no Castra ledger is written"
 r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "lf55_snapshot.py"), "undo", "--session", sid],
                    capture_output=True, text=True)
 res = json.loads(r.stdout)
@@ -111,8 +110,8 @@ assert open(f"{REPO}/app/calc.py").read() == "A = 1\n", "undo restored the edite
 assert not os.path.exists(f"{REPO}/app/new.py") and os.path.exists(os.path.join(res["aside_folder"], "before-undo", "app/new.py")), \
     "created file moved aside, not lost"
 
-for f in glob.glob(f"{S}/selftest55-*-{os.getpid()}.*") + [ledger]:
+for f in glob.glob(f"{S}/selftest55-*-{os.getpid()}.*") + ([ledger] if os.path.exists(ledger) else []):
     os.remove(f)
 for d in glob.glob(os.path.join(S, "snapshots", f"selftest55-*-{os.getpid()}")):
     import shutil; shutil.rmtree(d)
-print("shell ok (write heuristic, bashFirst-keyed gate, notification, Castra ledger, undo)")
+print("shell ok (write heuristic, bashFirst-keyed gate, notification, undo)")

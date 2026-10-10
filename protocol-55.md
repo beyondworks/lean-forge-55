@@ -2,8 +2,7 @@
 LEAN-FORGE-55 — shell writes. When Claude Code runs in Bash-first mode, file changes made through Bash bypass its
 checkpoints (/rewind cannot restore them) and its edit hooks. Here they are gated and tracked for every model: while
 SETTLE is closed, commands that write files are denied (reading, searching and running tests stay open); every Bash
-call is diffed against the tree, so changed files enter the Castra ledger (verify them as usual). The user can undo
-the last turn's shell changes with:
+call is diffed against the tree, so the user can undo the last turn's shell changes with:
   python3 "{ROOT}/scripts/lf55_snapshot.py" undo --session {SID}
 </lean_forge_shell>
 

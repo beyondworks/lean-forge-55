@@ -6,16 +6,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/castra-posture.py\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}/hooks/ponytail-activate.js\" || exit 0",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "cat \"${CLAUDE_PLUGIN_ROOT}/protocol.md\"",
             "timeout": 5
           },
@@ -30,16 +20,6 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/castra-route.py\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "command -v node >/dev/null 2>&1 && node \"${CLAUDE_PLUGIN_ROOT}/hooks/ponytail-mode-tracker.js\" || exit 0",
-            "timeout": 5
-          },
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/forge.py\" prompt",
@@ -82,16 +62,6 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/castra-trace.py\"",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "Bash|AskUserQuestion",
         "hooks": [
           {
@@ -105,11 +75,6 @@
     "Stop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/castra-openloop.py\"",
-            "timeout": 10
-          },
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/forge.py\" stop",

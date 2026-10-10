@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.15 — 2026-10-10
+
+- Removed what ten days of measurement (10/01–10/10, the author's Opus 5.5 sessions) showed did not help: Castra's
+  Stop check and evidence ledger (23 blocks, 1 defect found), the Castra posture text and the Ponytail prompt
+  (~22k characters a session, no consistent change in AI-written diffs). Their hooks, skills and scripts are gone;
+  protocol.md keeps SETTLE and the `ponytail:` comment for a shortcut with a known ceiling.
+- A subagent keeps the gate it started under: delegated work started while open finishes after the user's next message
+  closes the parent's gate (four Argo subagents on approved PRs were denied mid-task); one started while closed stays closed.
+- Guardian: `sed 's/process.env.A/process.env.B/'` and other edits of code that says `process.env` / `import.meta.env`
+  are no longer read as opening a `.env` file (9 of 40 denials).
+
 ## 0.2.14 — 2026-10-08
 
 - Ponytail is scoped to code. A written deliverable the user asked for (plan, proposal, spec, copy, script, email,

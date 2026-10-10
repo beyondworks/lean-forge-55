@@ -1,4 +1,4 @@
-# `python3 test_bundle.py` — the vendored Castra and Ponytail parts run from this plugin alone.
+# `python3 test_bundle.py` — the vendored guardian and release gate run from this plugin alone.
 # CASTRA_HOME points at an empty temp dir, so nothing can fall back to a standalone ~/.castra install.
 import json, os, subprocess, sys, tempfile
 
@@ -47,7 +47,9 @@ for cmd in ['git grep -n "process.env.LS_\\|process.env.LEMON" origin/main -- sr
             "PW=/x timeout 120 node --input-type=module -e \"const m = await import(process.env.PW);\"",
             # 0.2.5: output that cannot carry a value: counts, yes/no, names (22 real denials were like these)
             "grep -c DB_ .env.local", "grep -q STRIPE .env && echo yes", 'grep -oE "^[A-Z_]+=" .env.local | grep -iE "db|pg"',
-            "cut -s -d= -f1 .env.local", "cat .env.example", "head app/.env.template"]:
+            "cut -s -d= -f1 .env.local", "cat .env.example", "head app/.env.template",
+            # 0.2.15: editing code text that says process.env / import.meta.env names no file (9 of 40 denials 10/01~10)
+            "sed -i '' 's/process.env.FOO/process.env.BAR/' src/app.js", "sed -i 's/import.meta.env.A/import.meta.env.B/g' src/x.ts"]:
     assert '"deny"' not in pre_bash(cmd), f"naming .env without reading it passes: {cmd}"
 # the other hand-off rules: a command that really does it is still handed off
 for cmd in ["git push -f origin x", "cd w && git push -q --force-with-lease origin b 2>&1 | grep -v remote",
@@ -89,34 +91,15 @@ out = hook("castra-release-gate.py", {"tool_name": "Bash", "tool_input": {"comma
                                       "permission_mode": "default", "session_id": SID, "cwd": repo})
 assert ('"deny"' in out or '"ask"' in out), f"release without CI evidence is stopped: {out[:200]}"
 
-# posture: contract injected, runtime hint points at this plugin's scripts
-out = hook("castra-posture.py", {"hook_event_name": "SessionStart", "session_id": SID, "cwd": repo, "source": "startup"})
-assert "castra_execution_posture" in out and os.path.join(ROOT, "scripts") in out, "posture uses vendored scripts"
-
-# evidence ledger: edit → Stop blocked; verify → passes; re-edit → blocked again
-edit = {"hook_event_name": "PostToolUse", "tool_name": "Edit", "session_id": SID, "cwd": repo,
-        "tool_input": {"file_path": os.path.join(repo, "app.py")}, "tool_response": {"success": True}}
-stop = {"hook_event_name": "Stop", "session_id": SID, "cwd": repo, "stop_hook_active": False}
-open(os.path.join(repo, "app.py"), "w").write("x = 2\n")
-hook("castra-trace.py", edit)
-assert '"block"' in hook("castra-openloop.py", stop), "unverified edit blocks Stop"
-v = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "castra_runtime.py"), "verify", "--session", SID,
-                    "--file", os.path.join(repo, "app.py"), "--", sys.executable, "-c", "import app; assert app.x == 2"],
-                   capture_output=True, text=True, env=ENV, cwd=repo)
-assert '"verified"' in v.stdout, f"verify recorded: {v.stdout[:200]} {v.stderr[:200]}"
-assert '"block"' not in hook("castra-openloop.py", stop), "verified edit lets Stop through"
-open(os.path.join(repo, "app.py"), "w").write("x = 3\n")
-hook("castra-trace.py", edit)
-assert '"block"' in hook("castra-openloop.py", dict(stop)), "re-edit invalidates evidence"
-
-# ponytail: activation injects the vendored SKILL.md with the SETTLE-compatible rule
-out = hook("ponytail-activate.js", {"hook_event_name": "SessionStart", "session_id": SID, "cwd": repo, "source": "startup"},
-           runner="node")
-assert "PONYTAIL" in out and "Once the outcome-changing decisions are settled" in out, "ponytail patched rule injected"
-# 0.2.14: written deliverables are not code (plans, copy and scripts were coming out short and flat under the code rules)
-assert "A written deliverable the user asked for" in out, "ponytail scoped to code"
-assert "Ponytail is for code" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "protocol.md")).read(), "protocol scopes ponytail"
-assert "Never stall on an answer you can default." not in out.replace("After SETTLE, never stall", ""), "old rule gone"
+# 0.2.15: the Castra posture, evidence ledger and Ponytail injection are gone (measured 10/01~10/10: the Stop check
+# found 1 defect in 23 blocks, the posture text was ~22k chars a session, Ponytail left no measurable change in diffs)
+hooks = json.load(open(os.path.join(H, "hooks.json")))["hooks"]
+wired = json.dumps(hooks)
+for gone in ("castra-posture", "castra-route", "castra-trace", "castra-openloop", "ponytail-"):
+    assert gone not in wired, f"{gone} is no longer wired"
+assert "castra-guardian.py" in wired and "forge.py" in wired, "guardian and the SETTLE gate stay"
+proto = open(os.path.join(ROOT, "protocol.md")).read()
+assert "SETTLE" in proto and "ponytail:" in proto and "Castra" not in proto, "protocol keeps SETTLE and the ponytail: comment"
 
 
 # 0.2.6+: advisory-only guardian text comes once per session and reason; denials and real prompts repeat
@@ -128,4 +111,4 @@ assert "advisory" in guard("git commit -m x", "bypassPermissions") and "advisory
 assert "advisory" in guard("rm -rf build", "bypassPermissions") and guard("rm -rf dist", "bypassPermissions").strip() == "{}"
 assert '"ask"' in guard("rm -rf build", "default") and '"ask"' in guard("rm -rf build", "default"), "real prompts repeat"
 assert '"deny"' in guard("cat .env", "bypassPermissions") and '"deny"' in guard("cat .env", "bypassPermissions"), "denials repeat"
-print("bundle ok (guardian, release gate, posture, evidence ledger, ponytail)")
+print("bundle ok (guardian, release gate, removed hooks stay unwired)")

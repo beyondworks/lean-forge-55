@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "lean-forge-55",
-  "description": "One harness: settle what changes the outcome, build the simplest thing, prove it on evidence.",
+  "description": "Settle what changes the outcome before touching files; shell writes undoable; secrets and force pushes guarded.",
   "owner": {
     "name": "beyondworks",
     "url": "https://github.com/beyondworks"

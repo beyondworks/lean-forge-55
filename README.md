@@ -2,13 +2,26 @@
 
 **lean-forge, tuned for Claude Opus 5.5 and for Claude Code's Bash-first sessions.**
 
-Everything [lean-forge](https://github.com/beyondworks/lean-forge) does (SETTLE before building, Ponytail while building,
-Castra's evidence ledger at the end), plus two layers that came out of measuring Opus 5.5 directly:
+[lean-forge](https://github.com/beyondworks/lean-forge)'s SETTLE gate and Castra's guardian, plus two layers that came out
+of measuring Opus 5.5 directly:
 
 1. **Shell writes are gated, tracked and undoable** — in any session where Claude Code steers file work to Bash.
 2. **Rules for Opus 5.5's measured weak spots** — applied only when the model is `claude-opus-5-5`.
 
 [한국어](README.ko.md)
+
+### v0.2.15: what was removed, and why
+
+Ten days of the author's own Opus 5.5 sessions (10/01–10/10) were measured against what each part promised:
+
+- **Castra's Stop check and evidence ledger** — 23 Stop blocks under the current rules found one real defect; the rest
+  re-ran a test already run, closed the ledger with a token check, or deferred. Removed.
+- **Castra's posture text and Ponytail's prompt** (~22k characters every session) — AI-written diffs before and after
+  Ponytail showed no consistent change in size, deletions or new files, and Opus 5's own guidance warns that repeated
+  "verify" instructions cause over-verification. Removed; the `ponytail:` comment for a shortcut with a known ceiling stays.
+- **Kept:** the SETTLE gate (5% of prompts closed, 32 of 66k tool calls denied), shell undo, and the guardian
+  (6 of its 40 denials stopped an agent from using production credentials). A subagent now keeps the gate it started
+  under, and editing code that says `process.env` is no longer read as opening a `.env` file.
 
 ---
 
@@ -30,7 +43,6 @@ flowchart LR
     W -- "yes / read-only" --> S["snapshot the tree<br/>(first shell call of the turn)"]
     S --> R["command runs"]
     R --> F["diff the tree:<br/>which files changed?"]
-    F --> L["Castra ledger:<br/>changed files are pending<br/>until a check covers them"]
     F --> U["undo restores the turn;<br/>new files are moved aside, not deleted"]
 ```
 
@@ -135,8 +147,8 @@ throwaway work, plain lean-forge is a little cheaper and faster.
 /plugin install lean-forge-55@lean-forge-55
 ```
 
-Do not enable it together with lean-forge, Castra hooks or the Ponytail plugin: it contains all of them, and the same
-hooks would run twice. Requirements: `python3`, `node`, `git`; optionally a TypeSafe key for Jev
+Do not enable it together with lean-forge or Castra hooks: it contains the gate and the guardian, and the same hooks
+would run twice. Requirements: `python3`, `git`; optionally a TypeSafe key for Jev
 (`TYPESAFE_API_KEY`, environment or macOS keychain; `LEAN_FORGE_JEV=off` disables it).
 
 **Undo the last turn's shell changes:** the session-start block prints the exact command, of the form
@@ -150,7 +162,7 @@ copy of what it replaced, so the undo can itself be reversed. The `lean-forge-55
 
 **Turn the gate off for one session:** if the gate keeps getting in the way of a session where you give design and
 feature direction as you go, create an empty file named after that session's id. Other sessions are unaffected; the
-Castra ledger and shell undo keep working. Delete the file to turn the gate back on.
+guardian and shell undo keep working. Delete the file to turn the gate back on.
 
 ```bash
 touch ~/.cache/lean-forge-55/<session id>.off
@@ -159,7 +171,7 @@ touch ~/.cache/lean-forge-55/<session id>.off
 The session id is the transcript's file name under `~/.claude/projects/`. The change applies from the next tool call,
 without restarting the session.
 
-Self-tests: `python3 hooks/test_settle.py`, `python3 hooks/test_castra_stop.py`, `python3 hooks/test_shell.py`, `python3 hooks/test_bundle.py` (offline) and
+Self-tests: `python3 hooks/test_settle.py`, `python3 hooks/test_shell.py`, `python3 hooks/test_bundle.py` (offline) and
 `python3 hooks/test_forge.py` (live Jev). `scripts/release.sh` runs them all before tagging.
 
 ## Limits
@@ -176,8 +188,8 @@ Self-tests: `python3 hooks/test_settle.py`, `python3 hooks/test_castra_stop.py`,
 ## Credits
 
 - [lean-forge](https://github.com/beyondworks/lean-forge) — MIT
-- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, vendored with the guardian's matching narrowed: rules apply to what a command runs, not to words in data (here-document bodies written to files, searches, comments), and `git -C …` no longer hides a subcommand ([license](vendor-licenses/castra-LICENSE))
-- [Ponytail](https://github.com/DietrichGebert/ponytail) 4.5.0 by Dietrich Gebert — MIT, vendored with one sentence changed ([license](vendor-licenses/ponytail-LICENSE))
+- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, its guardian and release gate vendored with the guardian's matching narrowed: rules apply to what a command runs, not to words in data (here-document bodies written to files, searches, comments), and `git -C …` no longer hides a subcommand ([license](vendor-licenses/castra-LICENSE))
+- [Ponytail](https://github.com/DietrichGebert/ponytail) by Dietrich Gebert — MIT; vendored until 0.2.14, its `ponytail:` comment convention remains ([license](vendor-licenses/ponytail-LICENSE))
 - [Jev](https://docs.typesafe.ai) by TypeSafe — external API
 - The pasted-text note is quoted from Anthropic's [Prompting Claude Opus 5.5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)
 

@@ -2,13 +2,26 @@
 
 **Claude Opus 5.5와 Claude Code의 Bash 우선 세션에 맞춘 lean-forge.**
 
-[lean-forge](https://github.com/beyondworks/lean-forge)가 하는 일(만들기 전에 정하기, 만들 때 Ponytail, 끝에 Castra 증거 장부)은
-그대로 하고, Opus 5.5를 직접 재 보고 나온 두 층을 더했습니다.
+[lean-forge](https://github.com/beyondworks/lean-forge)의 정하기 게이트와 Castra의 가디언에, Opus 5.5를 직접 재 보고 나온
+두 층을 더했습니다.
 
 1. **셸로 쓰는 파일도 막고, 기록하고, 되돌릴 수 있게 합니다.** Claude Code가 파일 작업을 Bash로 유도하는 세션이면 모델과 상관없이 적용됩니다.
 2. **Opus 5.5가 실측에서 약했던 부분을 규칙으로 보완합니다.** 모델이 `claude-opus-5-5`일 때만 적용됩니다.
 
 [English](README.md)
+
+### v0.2.15: 뺀 것과 이유
+
+제작자 본인의 Opus 5.5 세션 열흘치(10/01~10/10)를 각 부분이 약속한 효과와 대조했습니다.
+
+- **Castra 마감 확인과 증거 장부**: 지금 규칙의 마감 확인 23번 중 실제 결함을 찾은 것은 1번이었습니다. 나머지는 이미
+  돌린 테스트를 다시 돌리거나, 형식적인 검사로 장부를 닫거나, 뒤로 미뤘습니다. 뺐습니다.
+- **Castra 안내문과 Ponytail 안내문**(세션마다 약 2.2만 자): Ponytail 도입 전후 AI가 쓴 diff의 크기·삭제 비율·새 파일
+  비율에 일관된 변화가 없었고, Opus 5 공식 지침은 "검증하라"는 지시를 반복하면 과잉 검증이 생긴다고 합니다. 뺐습니다.
+  한계가 있는 지름길에 `ponytail:` 주석을 다는 규칙 한 줄만 남겼습니다.
+- **남긴 것**: 정하기 게이트(입력의 5%만 닫힘, 도구 호출 6.6만 번 중 32번 차단), 셸 되돌리기, 가디언(차단 40번 중 6번이
+  에이전트가 운영 자격증명을 쓰려던 것을 막음). 서브에이전트는 시작할 때의 게이트 상태를 따르고, 코드 속 `process.env`
+  글자를 고치는 명령은 더 이상 `.env` 파일을 여는 것으로 보지 않습니다.
 
 ---
 
@@ -30,7 +43,6 @@ flowchart LR
     W -- "예 / 읽기 전용" --> S["저장소 스냅샷<br/>(그 턴의 첫 셸 명령)"]
     S --> R["명령 실행"]
     R --> F["전후 비교:<br/>바뀐 파일 찾기"]
-    F --> L["Castra 장부:<br/>검사로 확인할 때까지<br/>미검증"]
     F --> U["되돌리기:<br/>그 턴 이전으로 복원,<br/>새 파일은 지우지 않고 옮김"]
 ```
 
@@ -132,8 +144,8 @@ Claude Opus 5.5, Claude Code 2.1.280, effort `medium`으로 과제 8개(숨긴 �
 /plugin install lean-forge-55@lean-forge-55
 ```
 
-lean-forge, Castra 훅, Ponytail 플러그인과 함께 켜지 마세요. 모두 안에 들어 있어서 같은 훅이 두 번 실행됩니다.
-필요한 것: `python3`, `node`, `git`. 선택 사항으로 Jev용 TypeSafe 키가 있습니다(`TYPESAFE_API_KEY`, 환경 변수 또는 macOS
+lean-forge, Castra 훅과 함께 켜지 마세요. 게이트와 가디언이 안에 들어 있어서 같은 훅이 두 번 실행됩니다.
+필요한 것: `python3`, `git`. 선택 사항으로 Jev용 TypeSafe 키가 있습니다(`TYPESAFE_API_KEY`, 환경 변수 또는 macOS
 키체인. `LEAN_FORGE_JEV=off`로 끕니다).
 
 **마지막 턴의 셸 변경 되돌리기:** 세션 시작 안내에 정확한 명령이 나옵니다. 형태는 다음과 같습니다.
@@ -146,7 +158,7 @@ python3 "<플러그인 경로>/scripts/lf55_snapshot.py" undo --session <세션 
 되돌리기 자체도 되돌릴 수 있습니다. `lean-forge-55:undo` 스킬이 이 명령을 대신 실행합니다.
 
 **세션 하나만 게이트 끄기:** 디자인이나 기능 방향을 대화하면서 바로 정해 가는 세션에서 게이트가 계속 작업을 막으면,
-그 세션 ID로 빈 파일을 하나 만드세요. 다른 세션에는 영향이 없고, Castra 장부와 셸 되돌리기는 계속 작동합니다. 파일을
+그 세션 ID로 빈 파일을 하나 만드세요. 다른 세션에는 영향이 없고, 가디언과 셸 되돌리기는 계속 작동합니다. 파일을
 지우면 게이트가 다시 켜집니다.
 
 ```bash
@@ -156,7 +168,7 @@ touch ~/.cache/lean-forge-55/<세션 ID>.off
 세션 ID는 `~/.claude/projects/` 아래에 있는 대화 기록 파일의 이름입니다. 세션을 다시 시작하지 않아도 다음 도구
 호출부터 적용됩니다.
 
-자체 테스트: `python3 hooks/test_settle.py`, `python3 hooks/test_castra_stop.py`, `python3 hooks/test_shell.py`, `python3 hooks/test_bundle.py`(오프라인),
+자체 테스트: `python3 hooks/test_settle.py`, `python3 hooks/test_shell.py`, `python3 hooks/test_bundle.py`(오프라인),
 `python3 hooks/test_forge.py`(실제 Jev). `scripts/release.sh`가 태그를 만들기 전에 모두 실행합니다
 
 ## 한계
@@ -172,8 +184,8 @@ touch ~/.cache/lean-forge-55/<세션 ID>.off
 ## 출처
 
 - [lean-forge](https://github.com/beyondworks/lean-forge) — MIT
-- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, 가디언의 판정만 좁혀 포함: 규칙은 명령이 실제로 실행하는 부분에만 적용하고 데이터(파일에 쓰는 here-document 본문, 검색어, 주석) 속 글자에는 적용하지 않습니다. `git -C …`로 하위 명령이 가려지지도 않습니다 ([라이선스](vendor-licenses/castra-LICENSE))
-- [Ponytail](https://github.com/DietrichGebert/ponytail) 4.5.0, Dietrich Gebert — MIT, 한 문장만 고쳐 포함 ([라이선스](vendor-licenses/ponytail-LICENSE))
+- [Castra](https://github.com/beyondworks/castra) 0.9.1 — MIT, 가디언과 배포 관문을 판정만 좁혀 포함: 규칙은 명령이 실제로 실행하는 부분에만 적용하고 데이터(파일에 쓰는 here-document 본문, 검색어, 주석) 속 글자에는 적용하지 않습니다. `git -C …`로 하위 명령이 가려지지도 않습니다 ([라이선스](vendor-licenses/castra-LICENSE))
+- [Ponytail](https://github.com/DietrichGebert/ponytail), Dietrich Gebert — MIT, 0.2.14까지 포함, `ponytail:` 주석 규칙만 남음 ([라이선스](vendor-licenses/ponytail-LICENSE))
 - [Jev](https://docs.typesafe.ai), TypeSafe — 외부 API
 - 붙여 넣은 텍스트 안내 문구는 Anthropic의 [Prompting Claude Opus 5.5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)에서 인용했습니다
 

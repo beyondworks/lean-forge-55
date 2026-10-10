@@ -56,6 +56,18 @@ call("prompt", jev=CLOSE_NEW, prompt="송장 PDF 기능 만들어 줘")
 call("post", tool_name="AskUserQuestion", tool_input={}, tool_response={})
 assert state()["state"] == "open"
 
+# a subagent keeps the gate it started under (9574d0c0 10/10: four subagents on PRs approved earlier were denied
+# mid-task once the user's next message closed the parent's gate); one started while closed stays closed
+call, state = session("subagent")
+call("prompt", prompt="승인한 PR 세 건 진행해 줘")
+w = lambda aid=None: call("pre", tool_name="Write", tool_input={"file_path": f"{REPO}/app/pr.py"}, **({"agent_id": aid} if aid else {}))
+assert not denied(w("a-early"))
+call("stop"); call("prompt", jev=CLOSE_NEW, prompt="그리고 새 기능 하나 설계해 줘")
+assert state()["state"] == "closed" and denied(w()), "the parent's new open-ended request is still gated"
+assert not denied(w("a-early")), "delegated work started while open finishes"
+assert not denied(call("pre", tool_name="Bash", tool_input={"command": "echo x > app/pr2.py"}, agent_id="a-early"))
+assert denied(w("a-late")), "a subagent started while closed does not get around SETTLE"
+
 # a message that arrives while the agent is still working joins that work; it does not close the gate
 # (real: a mid-turn "그리고 이것도" closed the gate on work already under way)
 WORKING = transcript(("user", "오타 고쳐 줘"), ("agent", "고치는 중입니다."))  # the agent's last activity: mid-turn
