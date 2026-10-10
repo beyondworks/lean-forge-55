@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.16 — 2026-10-10
+
+- Security review of 0.2.15, both found and fixed the same day:
+  - A subagent that started while the gate was open could take new work from the parent after the gate closed. Now
+    a message the parent sends while closed (SendMessage, newly hooked) puts every remembered subagent back on the
+    parent's gate. Restart a session to pick up the new hook.
+  - The guardian's `process.env` exception looked at the whole argument, so `cat x/process.env/../.env` read a real
+    `.env`. It now applies only when the name itself reads like code text (`process.env.API_URL`), inside an
+    expression such as `s/…/…/`.
+
 ## 0.2.15 — 2026-10-10
 
 - Removed what ten days of measurement (10/01–10/10, the author's Opus 5.5 sessions) showed did not help: Castra's

@@ -67,6 +67,8 @@ assert state()["state"] == "closed" and denied(w()), "the parent's new open-ende
 assert not denied(w("a-early")), "delegated work started while open finishes"
 assert not denied(call("pre", tool_name="Bash", tool_input={"command": "echo x > app/pr2.py"}, agent_id="a-early"))
 assert denied(w("a-late")), "a subagent started while closed does not get around SETTLE"
+call("pre", tool_name="SendMessage", tool_input={"to": "a-early", "message": "이것도 새로 만들어 줘"})
+assert denied(w("a-early")), "new instructions sent to a running subagent while closed fall back to the parent's gate"
 
 # a message that arrives while the agent is still working joins that work; it does not close the gate
 # (real: a mid-turn "그리고 이것도" closed the gate on work already under way)

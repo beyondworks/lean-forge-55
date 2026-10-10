@@ -133,7 +133,8 @@ ENV_READERS = {"cat", "less", "more", "head", "tail", "bat", "open", "grep", "eg
                "sed", "awk", "cut", "sort", "uniq", "strings", "xxd", "od", "hexdump", "base64", "nl", "tac",
                "get-content", "gc", "type"}   # 뒤의 셋은 PowerShell·cmd
 PATTERN_FIRST = {"grep", "egrep", "fgrep", "rg"}   # 첫 번째 위치 인자는 파일이 아니라 검색어
-CODE_ENV = re.compile(r"\b(?:process|meta|Deno|Bun)\.env\b")
+# code text, not a file: the name itself reads like `process.env.API_URL` (an upper-case variable after it)
+CODE_ENV = re.compile(r"^(?:process|import\.meta|Deno|Bun)\.env\.[A-Z_][A-Z0-9_]*$")
 ENV_FILE = re.compile(r"(^|\.)env(\.[^/]*)?$")      # .env, .env.local, prod.env — process.environment 는 아님
 ENV_TEMPLATE = re.compile(r"\.(example|sample|template|dist)$")   # 값이 없는 견본 파일
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1")
@@ -206,8 +207,8 @@ def _names_only(head, words):
 
 def _env_file(a):
     name = a.rstrip("/").rsplit("/", 1)[-1]
-    if CODE_ENV.search(a):  # `sed 's/process.env.A/process.env.B/'` edits code text, it names no file (9 of 40 denials, 10/01~10)
-        return False
+    if CODE_ENV.match(name) and "/" in a.strip("/"):  # `sed 's/process.env.A/process.env.B/'` edits code text (9 of 40
+        return False                                    # denials 10/01~10); a path that ends in a real .env is still one
     return ".env" in a and bool(ENV_FILE.search(name)) and not ENV_TEMPLATE.search(name)
 
 

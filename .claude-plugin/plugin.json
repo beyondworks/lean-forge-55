@@ -1,5 +1,5 @@
 {
   "name": "lean-forge-55",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "lean-forge tuned for Claude Opus 5.5: a SETTLE gate that asks only what changes the outcome, shell writes gated with per-turn undo, and a guardian for secrets and force pushes."
 }

@@ -428,6 +428,12 @@ def main():
             save(sp, st)
         gate = seen.get(aid, gate)
         rec["agent"] = gate
+    elif ev == "pre" and not aid and inp.get("tool_name") == "SendMessage" and gate != "open" and st.get("agents"):
+        # new instructions to a running subagent while the parent's gate is closed are new work, not the delegated
+        # task: every subagent falls back to the parent's gate (security review of 0.2.15)
+        st["agents"] = {k: "closed" for k in st["agents"]}
+        save(sp, st)
+        rec["agents_closed"] = len(st["agents"])
 
     def done(**more):
         if LOG_ONLY:
